@@ -72,3 +72,20 @@ export function logout() {
 export function fetchUser(userId) {
   return request(`/api/users/${userId}`)
 }
+
+// Analytics APIs
+export function fetchAnalyticsSummary(days = 30) {
+  return request(`/api/analytics/summary?days=${days}`)
+}
+
+export function fetchAnalyticsCFD(days = 30) {
+  return request(`/api/analytics/cfd?days=${days}`)
+}
+
+export function fetchAnalyticsStreak() {
+  return request('/api/analytics/streak')
+}
+
+export function fetchCompletedTasks(days = 365) {
+  return request(`/api/completed-tasks?days=${days}`)
+}
