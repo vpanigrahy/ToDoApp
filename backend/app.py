@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 import os
+from datetime import datetime, date
 
 from flask import Flask, jsonify, request, session
 from flask_cors import CORS
@@ -71,47 +72,114 @@ def get_user(user_id: int):
 
 @app.post("/api/register")
 def register():
+    # Set CORS headers explicitly
+    origin = request.headers.get('Origin')
+    allowed_origins_env = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
+    allowed_origins = [o.strip() for o in allowed_origins_env.split(",") if o.strip()]
+    
     payload = request.get_json(silent=True) or request.form or {}
     username = (payload.get("username") or "").strip()
     password = payload.get("password") or ""
+    
+    # Enhanced validation
     if not username or not password:
-        return jsonify({"message": "Username and password are required."}), 400
+        response = jsonify({"message": "Username and password are required."})
+        response.status_code = 400
+        if origin and origin in allowed_origins:
+            response.headers['Access-Control-Allow-Origin'] = origin
+            response.headers['Access-Control-Allow-Credentials'] = 'true'
+        return response
+    
+    if len(username) < 3:
+        response = jsonify({"message": "Username must be at least 3 characters long."})
+        response.status_code = 400
+        if origin and origin in allowed_origins:
+            response.headers['Access-Control-Allow-Origin'] = origin
+            response.headers['Access-Control-Allow-Credentials'] = 'true'
+        return response
+    
+    if len(password) < 6:
+        response = jsonify({"message": "Password must be at least 6 characters long."})
+        response.status_code = 400
+        if origin and origin in allowed_origins:
+            response.headers['Access-Control-Allow-Origin'] = origin
+            response.headers['Access-Control-Allow-Credentials'] = 'true'
+        return response
 
     password_hash = generate_password_hash(password)
 
     try:
         with db_cursor() as cur:
+            # Check if username already exists
+            cur.execute("SELECT id FROM users WHERE username = %s", (username,))
+            if cur.fetchone():
+                response = jsonify({"message": f"Username '{username}' already exists. Please choose another one."})
+                response.status_code = 400
+                if origin and origin in allowed_origins:
+                    response.headers['Access-Control-Allow-Origin'] = origin
+                    response.headers['Access-Control-Allow-Credentials'] = 'true'
+                return response
+            
             cur.execute(
                 "INSERT INTO users (username, password_hash) VALUES (%s, %s) RETURNING id",
                 (username, password_hash),
             )
             new_id = cur.fetchone()[0]
     except Exception as e:
-        # Return the DB error for visibility while debugging registration
-        return jsonify({"message": f"Registration failed: {str(e)}"}), 400
+        app.logger.error(f"Registration error: {str(e)}")
+        response = jsonify({"message": "Registration failed. Please try again."})
+        response.status_code = 400
+        if origin and origin in allowed_origins:
+            response.headers['Access-Control-Allow-Origin'] = origin
+            response.headers['Access-Control-Allow-Credentials'] = 'true'
+        return response
 
     session["user_id"] = new_id
     session["username"] = username
-    return jsonify({"id": new_id, "username": username}), 201
+    response = jsonify({"id": new_id, "username": username})
+    response.status_code = 201
+    if origin and origin in allowed_origins:
+        response.headers['Access-Control-Allow-Origin'] = origin
+        response.headers['Access-Control-Allow-Credentials'] = 'true'
+    return response
 
 
 @app.post("/api/login")
 def login():
+    # Set CORS headers explicitly
+    origin = request.headers.get('Origin')
+    allowed_origins_env = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
+    allowed_origins = [o.strip() for o in allowed_origins_env.split(",") if o.strip()]
+    
     payload = request.get_json(silent=True) or request.form or {}
     username = (payload.get("username") or "").strip()
     password = payload.get("password") or ""
     if not username or not password:
-        return jsonify({"message": "Username and password are required."}), 400
+        response = jsonify({"message": "Username and password are required."})
+        response.status_code = 400
+        if origin and origin in allowed_origins:
+            response.headers['Access-Control-Allow-Origin'] = origin
+            response.headers['Access-Control-Allow-Credentials'] = 'true'
+        return response
 
     with db_cursor() as cur:
         cur.execute("SELECT id, password_hash FROM users WHERE username = %s", (username,))
         row = cur.fetchone()
     if not row or not check_password_hash(row[1], password):
-        return jsonify({"message": "Invalid credentials."}), 401
+        response = jsonify({"message": "Invalid credentials."})
+        response.status_code = 401
+        if origin and origin in allowed_origins:
+            response.headers['Access-Control-Allow-Origin'] = origin
+            response.headers['Access-Control-Allow-Credentials'] = 'true'
+        return response
 
     session["user_id"] = row[0]
     session["username"] = username
-    return jsonify({"id": row[0], "username": username})
+    response = jsonify({"id": row[0], "username": username})
+    if origin and origin in allowed_origins:
+        response.headers['Access-Control-Allow-Origin'] = origin
+        response.headers['Access-Control-Allow-Credentials'] = 'true'
+    return response
 
 
 @app.post("/api/logout")
@@ -166,11 +234,31 @@ def create_task():
     priority = (payload.get("priority") or "").strip()
     actionable_items = payload.get("actionableItems") or []
     completion_percent = int(payload.get("completionPercent") or 0)
+    
+    # Enhanced validation
+    if not name:
+        return jsonify({"message": "Task name is required and cannot be empty."}), 400
+    
+    if not due_date:
+        return jsonify({"message": "Due date is required."}), 400
+    
+    # Validate due date format and check if it's in the past
+    try:
+        due_date_obj = datetime.strptime(due_date, "%Y-%m-%d").date()
+        today = date.today()
+        if due_date_obj < today:
+            return jsonify({"message": "Due date cannot be in the past. Please select a future date."}), 400
+    except ValueError:
+        return jsonify({"message": "Invalid due date format. Please use YYYY-MM-DD."}), 400
+    
+    if priority not in {"P1", "P2", "P3"}:
+        return jsonify({"message": "Priority must be P1, P2, or P3."}), 400
+    
+    if not actionable_items or len(actionable_items) == 0:
+        return jsonify({"message": "At least one actionable item is required."}), 400
+    
     if completion_percent < 0 or completion_percent > 100:
-        return jsonify({"message": "completionPercent must be between 0 and 100."}), 400
-
-    if not name or not due_date or priority not in {"P1", "P2", "P3"}:
-        return jsonify({"message": "name, dueDate, and priority (P1|P2|P3) are required."}), 400
+        return jsonify({"message": "Completion percent must be between 0 and 100."}), 400
 
     task_id = uuid4()
     with db_cursor() as cur:
@@ -209,33 +297,54 @@ def update_task(task_id: str):
     if "name" in payload:
         name = (payload.get("name") or "").strip()
         if not name:
-            return jsonify({"message": "name cannot be empty."}), 400
+            return jsonify({"message": "Task name cannot be empty."}), 400
         fields.append("name = %s")
         values.append(name)
 
     if "dueDate" in payload:
         due_date = (payload.get("dueDate") or "").strip()
         if not due_date:
-            return jsonify({"message": "dueDate cannot be empty."}), 400
+            return jsonify({"message": "Due date cannot be empty."}), 400
+        
+        # Validate due date is not in the past
+        try:
+            due_date_obj = datetime.strptime(due_date, "%Y-%m-%d").date()
+            today = date.today()
+            if due_date_obj < today:
+                return jsonify({"message": "Due date cannot be in the past. Please select a future date."}), 400
+        except ValueError:
+            return jsonify({"message": "Invalid due date format. Please use YYYY-MM-DD."}), 400
+        
         fields.append("due_date = %s")
         values.append(due_date)
 
     if "priority" in payload:
         priority = (payload.get("priority") or "").strip()
         if priority not in {"P1", "P2", "P3"}:
-            return jsonify({"message": "priority must be P1, P2 or P3."}), 400
+            return jsonify({"message": "Priority must be P1, P2, or P3."}), 400
         fields.append("priority = %s")
         values.append(priority)
 
     if "completed" in payload:
         completed = payload.get("completed")
         if not isinstance(completed, bool):
-            return jsonify({"message": "completed must be a boolean."}), 400
+            return jsonify({"message": "Completed must be a boolean value."}), 400
         fields.append("completed = %s")
         values.append(completed)
+        
+        # Set completed_at timestamp when marking as complete
+        if completed:
+            fields.append("completed_at = %s")
+            values.append(datetime.now())
+        else:
+            # Clear completed_at if unmarking as complete
+            fields.append("completed_at = %s")
+            values.append(None)
 
     if "actionableItems" in payload:
         items = payload.get("actionableItems") or []
+        if not items or len(items) == 0:
+            return jsonify({"message": "At least one actionable item is required."}), 400
         fields.append("actionable_items = %s::jsonb")
         values.append(json.dumps(items))
 
@@ -243,9 +352,9 @@ def update_task(task_id: str):
         try:
             cp = int(payload.get("completionPercent"))
         except Exception:
-            return jsonify({"message": "completionPercent must be an integer."}), 400
+            return jsonify({"message": "Completion percent must be an integer."}), 400
         if cp < 0 or cp > 100:
-            return jsonify({"message": "completionPercent must be between 0 and 100."}), 400
+            return jsonify({"message": "Completion percent must be between 0 and 100."}), 400
         fields.append("completion_percent = %s")
         values.append(cp)
 
@@ -289,5 +398,268 @@ def delete_task(task_id: str):
     return "", 204
 
 
+# ==================== ANALYTICS ENDPOINTS ====================
+
+@app.get("/api/analytics/summary")
+def analytics_summary():
+    """Get analytics summary: total completed, on-time rate, average completion time"""
+    try:
+        user_id = _require_user_id()
+    except PermissionError:
+        return jsonify({"message": "Unauthorized"}), 401
+    
+    # Get days parameter (default 30)
+    days = request.args.get('days', 30, type=int)
+    
+    with db_cursor() as cur:
+        # Get completed tasks in the time window
+        cur.execute(
+            """
+            SELECT 
+                COUNT(*) as total_completed,
+                COUNT(CASE WHEN completed_at <= due_date THEN 1 END) as completed_on_time,
+                AVG(EXTRACT(EPOCH FROM (completed_at - created_at)) / 86400) as avg_completion_days
+            FROM tasks
+            WHERE user_id = %s 
+                AND completed = true 
+                AND completed_at IS NOT NULL
+                AND completed_at >= NOW() - INTERVAL '%s days'
+            """,
+            (user_id, days)
+        )
+        row = cur.fetchone()
+        
+        total_completed = row[0] or 0
+        completed_on_time = row[1] or 0
+        avg_completion_days = float(row[2]) if row[2] else 0.0
+        
+        on_time_rate = (completed_on_time / total_completed) if total_completed > 0 else 0.0
+        
+        # Get tasks completed this week
+        cur.execute(
+            """
+            SELECT COUNT(*)
+            FROM tasks
+            WHERE user_id = %s 
+                AND completed = true
+                AND completed_at >= NOW() - INTERVAL '7 days'
+            """,
+            (user_id,)
+        )
+        tasks_this_week = cur.fetchone()[0] or 0
+    
+    return jsonify({
+        "total_completed": total_completed,
+        "completed_on_time": completed_on_time,
+        "on_time_rate": round(on_time_rate, 2),
+        "avg_completion_days": round(avg_completion_days, 1),
+        "tasks_completed_this_week": tasks_this_week,
+        "time_window_days": days
+    })
+
+
+@app.get("/api/analytics/streak")
+def analytics_streak():
+    """Calculate on-time completion streak (optional feature)"""
+    try:
+        user_id = _require_user_id()
+    except PermissionError:
+        return jsonify({"message": "Unauthorized"}), 401
+    
+    # Get completed tasks ordered by completion date
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT 
+                DATE(completed_at) as completion_date,
+                CASE 
+                    WHEN completed_at <= due_date THEN true
+                    ELSE false
+                END as on_time
+            FROM tasks
+            WHERE user_id = %s 
+                AND completed = true
+                AND completed_at IS NOT NULL
+            ORDER BY completed_at DESC
+            LIMIT 365
+            """,
+            (user_id,)
+        )
+        rows = cur.fetchall()
+    
+    if not rows:
+        return jsonify({"on_time_streak_days": 0, "current_streak": False})
+    
+    # Group by date and check if at least one task was completed on-time each day
+    from collections import defaultdict
+    daily_on_time = defaultdict(bool)
+    
+    for row in rows:
+        completion_date = row[0]
+        on_time = row[1]
+        # If any task on this day was on-time, mark the day as on-time
+        if on_time:
+            daily_on_time[completion_date] = True
+    
+    # Create sorted list of dates
+    sorted_dates = sorted(daily_on_time.keys(), reverse=True)
+    
+    # Calculate current streak
+    streak = 0
+    today = date.today()
+    expected_date = today
+    
+    for completion_date in sorted_dates:
+        # Allow 1 day gap tolerance
+        if (expected_date - completion_date).days <= 1:
+            if daily_on_time[completion_date]:
+                streak += 1
+                expected_date = completion_date - timedelta(days=1)
+            else:
+                break
+        else:
+            break
+    
+    return jsonify({
+        "on_time_streak_days": streak,
+        "current_streak": streak > 0
+    })
+
+
+@app.get("/api/analytics/cfd")
+def analytics_cfd():
+    """Get Cumulative Flow Diagram data"""
+    try:
+        user_id = _require_user_id()
+    except PermissionError:
+        return jsonify({"message": "Unauthorized"}), 401
+    
+    days = request.args.get('days', 30, type=int)
+    
+    with db_cursor() as cur:
+        # Get all tasks for the user
+        cur.execute(
+            """
+            SELECT 
+                id,
+                created_at,
+                completed,
+                completed_at,
+                completion_percent
+            FROM tasks
+            WHERE user_id = %s
+            ORDER BY created_at
+            """,
+            (user_id,)
+        )
+        tasks = cur.fetchall()
+    
+    # Generate data for each day
+    from datetime import timedelta
+    
+    today = date.today()
+    start_date = today - timedelta(days=days-1)
+    
+    cfd_data = []
+    
+    for i in range(days):
+        current_date = start_date + timedelta(days=i)
+        backlog = 0
+        in_progress = 0
+        done = 0
+        
+        for task in tasks:
+            task_created = task[1].date() if task[1] else None
+            task_completed_at = task[3].date() if task[3] else None
+            completion_percent = task[4] or 0
+            
+            # Skip if task not created yet on this date
+            if not task_created or task_created > current_date:
+                continue
+            
+            # Check status on this date (per spec in Screenshot 4)
+            # If completed_at <= D → Done
+            if task_completed_at and task_completed_at <= current_date:
+                done += 1
+            # Else if created_at <= D and completion_percent > 0 → In-Progress
+            elif completion_percent > 0:
+                in_progress += 1
+            # Else if created_at <= D and completion_percent == 0 → Backlog
+            else:
+                backlog += 1
+        
+        cfd_data.append({
+            "date": current_date.isoformat(),
+            "backlog": backlog,
+            "in_progress": in_progress,
+            "done": done
+        })
+    
+    return jsonify(cfd_data)
+
+
+@app.get("/api/completed-tasks")
+def completed_tasks():
+    """Get completed tasks with on-time/late status"""
+    try:
+        user_id = _require_user_id()
+    except PermissionError:
+        return jsonify({"message": "Unauthorized"}), 401
+    
+    # Get filter parameter (default: last year)
+    days = request.args.get('days', 365, type=int)
+    
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT 
+                id::text,
+                name,
+                due_date,
+                priority,
+                completed_at,
+                CASE 
+                    WHEN completed_at <= due_date THEN true
+                    ELSE false
+                END as on_time
+            FROM tasks
+            WHERE user_id = %s 
+                AND completed = true
+                AND completed_at IS NOT NULL
+                AND completed_at >= NOW() - INTERVAL '%s days'
+            ORDER BY completed_at DESC
+            """,
+            (user_id, days)
+        )
+        rows = cur.fetchall()
+    
+    tasks = [
+        {
+            "id": r[0],
+            "name": r[1],
+            "dueDate": r[2].isoformat(),
+            "priority": r[3],
+            "completedAt": r[4].isoformat() if r[4] else None,
+            "onTime": r[5]
+        }
+        for r in rows
+    ]
+    
+    return jsonify(tasks)
+
+
+@app.get("/api/test")
+def test_connection():
+    origin = request.headers.get('Origin')
+    allowed_origins_env = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
+    allowed_origins = [o.strip() for o in allowed_origins_env.split(",") if o.strip()]
+    
+    response = jsonify({"message": "Connection successful", "origin": origin})
+    if origin and origin in allowed_origins:
+        response.headers['Access-Control-Allow-Origin'] = origin
+        response.headers['Access-Control-Allow-Credentials'] = 'true'
+    return response
+
+
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=True, port=5000)

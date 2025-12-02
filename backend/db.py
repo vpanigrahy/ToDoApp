@@ -82,5 +82,19 @@ def init_schema() -> None:
             END$$;
             """
         )
+        # Add completed_at if missing
+        cur.execute(
+            """
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'tasks' AND column_name = 'completed_at'
+                ) THEN
+                    ALTER TABLE tasks ADD COLUMN completed_at TIMESTAMPTZ NULL;
+                END IF;
+            END$$;
+            """
+        )
 
 
