@@ -1,9 +1,19 @@
+# Flask REST API for ToDoApp: session-based auth, task CRUD, analytics, and CORS-enabled frontend access.
+# Postponed evaluation of annotations for Python versions < 3.10
 from __future__ import annotations
 
+# called in create_task() to generate a new UUID for each task before it’s written to the database
 from uuid import uuid4
+# read environment variables for FLASK_SECRET_KEY, CORS_ORIGINS, etc., via os.getenv
 import os
+# used for validating due dates, capturing completion timestamps, and computing analytics windows
 from datetime import datetime, date
 
+
+# Flask instantiates the web object
+# jsonify serializes data to JSON responses
+# accesses incoming payloads/headers
+# session stores the logged-in user’s ID/username
 from flask import Flask, jsonify, request, session
 from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -13,10 +23,14 @@ import logging
 from db import db_cursor, init_schema
 import json
 
+# Load environment variables and configure logging/app settings.
 load_dotenv()
+# Structured app logging; INFO by default for request/DB diagnostics.
 logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s in %(module)s: %(message)s")
 app = Flask(__name__)
+# Secret used to sign session cookies; ensure a strong value in production.
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev-secret-change-me")
+# CORS: allow frontend origins and send cookies (supports_credentials=True) for session auth.
 allowed_origins_env = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
 allowed_origins = [o.strip() for o in allowed_origins_env.split(",") if o.strip()]
 CORS(
@@ -27,6 +41,7 @@ CORS(
 )
 app.logger.info("CORS allowed origins: %s", ", ".join(allowed_origins))
 
+# Diagnostics: verify DB connectivity on startup and log server version.
 def _log_db_connection() -> None:
     try:
         with db_cursor() as cur:
@@ -48,10 +63,12 @@ def _log_db_connection() -> None:
         app.logger.error("Database connection failed: %s", str(e))
 
 _log_db_connection()
+# Ensure base schema exists and lightweight migrations have been applied.
 init_schema()
 app.logger.info("Database schema ensured (tables: users, tasks)")
 
 
+# Helper: raises PermissionError if no logged-in user in the session cookie.
 def _require_user_id() -> int:
     user_id = session.get("user_id")
     if not user_id:
@@ -72,6 +89,7 @@ def get_user(user_id: int):
 
 @app.post("/api/register")
 def register():
+    # Auth: create a user with validation, unique username check, and session login.
     # Set CORS headers explicitly
     origin = request.headers.get('Origin')
     allowed_origins_env = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
@@ -146,6 +164,7 @@ def register():
 
 @app.post("/api/login")
 def login():
+    # Auth: verify credentials, set session, and return user basics.
     # Set CORS headers explicitly
     origin = request.headers.get('Origin')
     allowed_origins_env = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
@@ -184,12 +203,15 @@ def login():
 
 @app.post("/api/logout")
 def logout():
+    # Auth: clear the session to log out the user.
     session.clear()
     return "", 204
 
 
 @app.get("/api/tasks")
 def list_tasks():
+    # Tasks: return all tasks for current user, ordered by due_date then created_at.
+    # Dates serialized to ISO-8601 for client.
     try:
         user_id = _require_user_id()
     except PermissionError:
@@ -223,6 +245,8 @@ def list_tasks():
 
 @app.post("/api/tasks")
 def create_task():
+    # Tasks: validate input (name, due date not in past, priority, actionable items, completion range).
+    # Inserts JSONB for actionable_items and returns the created task.
     try:
         user_id = _require_user_id()
     except PermissionError:
@@ -285,6 +309,8 @@ def create_task():
 
 @app.patch("/api/tasks/<task_id>")
 def update_task(task_id: str):
+    # Tasks: partial update; handles completed_at when toggling completion.
+    # Validates due date format and bounds for completionPercent.
     try:
         user_id = _require_user_id()
     except PermissionError:
@@ -385,6 +411,7 @@ def update_task(task_id: str):
 
 @app.delete("/api/tasks/<task_id>")
 def delete_task(task_id: str):
+    # Tasks: delete by id for current user; 404 if not found.
     try:
         user_id = _require_user_id()
     except PermissionError:
@@ -399,6 +426,7 @@ def delete_task(task_id: str):
 
 
 # ==================== ANALYTICS ENDPOINTS ====================
+# Metrics derived from tasks (completed_on_time, averages, streaks, CFD).
 
 @app.get("/api/analytics/summary")
 def analytics_summary():
@@ -460,6 +488,7 @@ def analytics_summary():
 
 @app.get("/api/analytics/streak")
 def analytics_streak():
+    # Streak: counts consecutive days with at least one on-time completion.
     """Calculate on-time completion streak (optional feature)"""
     try:
         user_id = _require_user_id()
@@ -528,6 +557,7 @@ def analytics_streak():
 
 @app.get("/api/analytics/cfd")
 def analytics_cfd():
+    # CFD: bucket tasks per day into backlog/in_progress/done over a rolling window.
     """Get Cumulative Flow Diagram data"""
     try:
         user_id = _require_user_id()
@@ -650,6 +680,7 @@ def completed_tasks():
 
 @app.get("/api/test")
 def test_connection():
+    # Health/CORS probe: echoes origin and sets credentials headers if allowed.
     origin = request.headers.get('Origin')
     allowed_origins_env = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
     allowed_origins = [o.strip() for o in allowed_origins_env.split(",") if o.strip()]
@@ -662,4 +693,5 @@ def test_connection():
 
 
 if __name__ == "__main__":
+    # Dev server only; use a production WSGI (e.g., gunicorn) for deployment.
     app.run(debug=True, port=5000)
