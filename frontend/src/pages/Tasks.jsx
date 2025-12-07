@@ -16,8 +16,24 @@ export default function Tasks() {
   const [pendingIds, setPendingIds] = useState(() => new Set())
   const confettiRootRef = useRef(null)
 
-  const sortByDueDate = (list) =>
-    [...list].sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate))
+  const [sortMode, setSortMode] = useState('EDD')
+  const sortByStrategy = (list, mode = sortMode) => {
+    const copy = [...list]
+    if (mode === 'SPT') {
+      return copy.sort(
+        (a, b) => (Array.isArray(a.actionableItems) ? a.actionableItems.length : 0) - (Array.isArray(b.actionableItems) ? b.actionableItems.length : 0)
+      )
+    }
+    if (mode === 'WSPT') {
+      const weight = (p) => (p === 'P1' ? 3 : p === 'P2' ? 2 : 1)
+      const score = (t) => {
+        const est = Array.isArray(t.actionableItems) ? t.actionableItems.length : 0
+        return est > 0 ? weight(t.priority) / est : weight(t.priority)
+      }
+      return copy.sort((a, b) => score(b) - score(a))
+    }
+    return copy.sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate))
+  }
 
   const [filters, setFilters] = useState({ from: '', to: '', priority: '' })
   const [hideCompleted, setHideCompleted] = useState(false)
@@ -39,6 +55,11 @@ export default function Tasks() {
     })
   }
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    setTasks((current) => sortByStrategy(current, sortMode))
+  }, [sortMode])
+
   useEffect(() => {
     let cancelled = false
 
@@ -47,7 +68,7 @@ export default function Tasks() {
       try {
         const data = await fetchTasks()
         if (!cancelled) {
-          setTasks(sortByDueDate(data))
+          setTasks(sortByStrategy(data))
           setServerError('')
         }
       } catch (error) {
@@ -102,21 +123,14 @@ export default function Tasks() {
       return
     }
     
-    // Validate due date is not in the past
-    const today = new Date();
-today.setHours(0, 0, 0, 0);
-
-// Parse YYYY-MM-DD as a LOCAL date (not UTC)
-const [year, month, day] = dueDate.split("-").map(Number);
-const selectedDate = new Date(year, month - 1, day); // local midnight
-
-if (selectedDate < today) {
-  setFormError(
-    "Due date cannot be in the past. Please select today's date or a future date."
-  );
-  return;
-}
-
+    // Validate due date is not in the past or today
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const selectedDate = new Date(dueDate)
+    if (selectedDate < today) {
+      setFormError('Please select a future date.')
+      return
+    }
     
     if (!priority || !['P1', 'P2', 'P3'].includes(priority)) {
       setFormError('Please select a valid priority level (P1, P2, or P3).')
@@ -131,7 +145,7 @@ if (selectedDate < today) {
     try {
       setIsSubmitting(true)
       const createdTask = await createTask({ name, dueDate, priority, actionableItems, completionPercent: 0 })
-      setTasks((current) => sortByDueDate([...current, createdTask]))
+      setTasks((current) => sortByStrategy([...current, createdTask]))
       setDraft({ name: '', dueDate: '', priority: 'P2', actionableText: '' })
       setFormError('')
       setServerError('')
@@ -167,7 +181,7 @@ if (selectedDate < today) {
         completed: nextCompleted,
       })
       setTasks((current) =>
-        sortByDueDate(
+        sortByStrategy(
           current.map((item) => (item.id === targetId ? updatedTask : item)),
         ),
       )
@@ -198,7 +212,8 @@ if (selectedDate < today) {
   const hasTasks = tasks.length > 0
 
   return (
-    <div className="p-8 max-w-7xl mx-auto">
+    <div className="app-page">
+      <div className="app-shell">
       {serverError && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4" role="alert">
           {serverError}
@@ -324,15 +339,31 @@ if (selectedDate < today) {
           ) : null}
         </div>
         {hasTasks && (
-          <label className="flex items-center gap-2 cursor-pointer text-gray-700 hover:text-gray-900">
-            <input
-              type="checkbox"
-              checked={hideCompleted}
-              onChange={(e) => setHideCompleted(e.target.checked)}
-              className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
-            />
-            <span className="text-sm font-medium">Hide completed tasks</span>
-          </label>
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2 cursor-pointer text-gray-700 hover:text-gray-900">
+              <input
+                type="checkbox"
+                checked={hideCompleted}
+                onChange={(e) => setHideCompleted(e.target.checked)}
+                className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
+              />
+              <span className="text-sm font-medium">Hide Completed Tasks{'\u00A0'}</span>
+              <span>{'\u00A0'}</span>
+            
+            </label>
+            <div className="flex items-center gap-4">
+              <span className="text-sm text-gray-500">{'\u00A0'}Sort Tasks{'\u00A0'} </span>
+              <select
+                value={sortMode}
+                onChange={(e) => setSortMode(e.target.value)}
+                className="bg-gray-50 border border-gray-300 rounded px-3 py-1.5 text-gray-900 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="EDD">Earliest Due Date</option>
+                <option value="SPT">Shortest Processing Time</option>
+                <option value="WSPT">Weighted SPT</option>
+              </select>
+            </div>
+          </div>
         )}
       </section>
 
@@ -384,11 +415,11 @@ if (selectedDate < today) {
       </div>
 
       {/* Tasks List */}
-      <div>
+      <div className="task-list-wrapper">
         {isLoading ? (
-          <p className="text-center py-12 text-gray-400">Fetching your tasks…</p>
+          <p className="status-message">Fetching your tasks…</p>
         ) : hasTasks ? (
-          <div className="space-y-3">
+          <ul className="task-cards">
             {tasks
               .filter((task) => {
                 // Hide completed tasks if toggle is on
@@ -402,90 +433,133 @@ if (selectedDate < today) {
               })
               .map((task) => {
               const isBusy = pendingIds.has(task.id)
-              const isOverdue = !task.completed && new Date(task.dueDate) < new Date()
+              const todayMidnight = new Date()
+              todayMidnight.setHours(0, 0, 0, 0)
+              const isOverdue = !task.completed && new Date(task.dueDate) < todayMidnight
               return (
-                <div key={task.id} className={`border rounded-lg p-4 ${task.completed ? 'bg-green-50 border-green-200' : isOverdue ? 'bg-red-50 border-red-200' : 'bg-white border-gray-200'} shadow-sm`}>
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className={`px-2 py-1 rounded text-xs font-medium ${
-                          task.priority === 'P1' ? 'bg-red-100 text-red-800' :
-                          task.priority === 'P2' ? 'bg-yellow-100 text-yellow-800' :
-                          'bg-blue-100 text-blue-800'
-                        }`}>
-                          {task.priority}
-                        </span>
-                        <span className={`text-sm ${
-                          isOverdue ? 'text-red-600 font-semibold' : 'text-gray-500'
-                        }`}>
-                          Due: {new Date(task.dueDate).toLocaleDateString()}
-                          {isOverdue && ' ⚠️ OVERDUE'}
-                        </span>
-                      </div>
-                      <h3 className="text-lg font-semibold text-gray-900">{task.name}</h3>
-                      {Array.isArray(task.actionableItems) && task.actionableItems.length > 0 && (
-                        <ul className="mt-2 space-y-1">
-                          {task.actionableItems.map((it, idx) => (
-                            <li key={idx} className="text-sm text-gray-600">• {it}</li>
-                          ))}
-                        </ul>
-                      )}
-                      <div className="mt-3">
-                        <label className="text-sm text-gray-500">
-                          Completion: <strong className="text-gray-900">{task.completionPercent ?? 0}%</strong>
-                        </label>
-                        <input
-                          type="range"
-                          min="0"
-                          max="100"
-                          value={task.completionPercent ?? 0}
-                          onChange={async (e) => {
-                            const cp = parseInt(e.target.value, 10)
-                            markPending(task.id)
-                            try {
-                              const updated = await updateTask(task.id, { completionPercent: cp })
-                              setTasks((current) => sortByDueDate(current.map((t) => (t.id === task.id ? updated : t))))
-                            } catch (error) {
-                              setServerError(error.message || 'Unable to update task.')
-                            } finally {
-                              releasePending(task.id)
-                            }
-                          }}
-                          disabled={isBusy}
-                          className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                        />
-                      </div>
-                    </div>
+                <li key={task.id} className={`task-card ${task.completed ? 'completed' : 'inprogress'}`}>
+                  <div className="task-card-header">
+                    <span className={`priority ${task.priority}`}>{task.priority}</span>
+                    <span className="due-date"><strong>Due</strong> {new Date(task.dueDate).toLocaleDateString()}</span>
                   </div>
-                  <div className="flex gap-3 items-center">
-                    <label className="flex items-center gap-2 cursor-pointer">
+                  <div className="task-card-body">
+                    <h3 className="task-name">{task.name}</h3>
+                    {Array.isArray(task.actionableItems) && task.actionableItems.length > 0 && (
+                      <ul className="actionable-list">
+                        {task.actionableItems.map((it, idx) => (
+                          <li key={idx}>{it}</li>
+                        ))}
+                      </ul>
+                    )}
+                    <div className="percent-row">
+                      <label>Completion: <strong>{task.completionPercent ?? 0}%</strong></label>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={task.completionPercent ?? 0}
+                        onChange={async (e) => {
+                          const cp = parseInt(e.target.value, 10)
+                          markPending(task.id)
+                          try {
+                            const updated = await updateTask(task.id, { completionPercent: cp })
+                            setTasks((current) => sortByStrategy(current.map((t) => (t.id === task.id ? updated : t))))
+                          } catch (error) {
+                            setServerError(error.message || 'Unable to update task.')
+                          } finally {
+                            releasePending(task.id)
+                          }
+                        }}
+                        disabled={isBusy}
+                      />
+                    </div>
+                    <details className="edit-panel">
+                      <summary>Edit</summary>
+                      <div className="edit-grid">
+                        <div className="form-row">
+                          <label>Due date</label>
+                          <input
+                            type="date"
+                            defaultValue={String(task.dueDate).slice(0,10)}
+                            onBlur={async (e) => {
+                              const dueDate = e.target.value
+                              if (!dueDate) return
+                              markPending(task.id)
+                              try {
+                                const updated = await updateTask(task.id, { dueDate })
+                                setTasks((current) => sortByStrategy(current.map((t) => (t.id === task.id ? updated : t))))
+                              } finally { releasePending(task.id) }
+                            }}
+                            disabled={isBusy}
+                          />
+                        </div>
+                        <div className="form-row">
+                          <label>Priority level</label>
+                          <select
+                            defaultValue={task.priority}
+                            onChange={async (e) => {
+                              const priority = e.target.value
+                              markPending(task.id)
+                              try {
+                                const updated = await updateTask(task.id, { priority })
+                                setTasks((current) => sortByStrategy(current.map((t) => (t.id === task.id ? updated : t))))
+                              } finally { releasePending(task.id) }
+                            }}
+                            disabled={isBusy}
+                          >
+                            <option value="P1">P1</option>
+                            <option value="P2">P2</option>
+                            <option value="P3">P3</option>
+                          </select>
+                        </div>
+                        <div className="form-row">
+                          <label>Actionable Items</label>
+                          <textarea
+                            defaultValue={Array.isArray(task.actionableItems) ? task.actionableItems.join('\n') : ''}
+                            rows={3}
+                            onBlur={async (e) => {
+                              const actionableItems = e.target.value.split('\n').map(s=>s.trim()).filter(Boolean)
+                              markPending(task.id)
+                              try {
+                                const updated = await updateTask(task.id, { actionableItems })
+                                setTasks((current) => sortByStrategy(current.map((t) => (t.id === task.id ? updated : t))))
+                              } finally { releasePending(task.id) }
+                            }}
+                            disabled={isBusy}
+                          />
+                        </div>
+                      </div>
+                    </details>
+                  </div>
+                  <div className="task-card-actions">
+                    <label className="toggle">
                       <input
                         type="checkbox"
                         checked={task.completed}
                         onChange={() => toggleTask(task)}
                         disabled={isBusy}
-                        className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
                       />
-                      <span className="text-sm text-gray-600">Completed</span>
+                      <span>Completed</span>
                     </label>
                     <button
                       type="button"
+                      className="delete-button"
                       onClick={() => removeTask(task.id)}
                       disabled={isBusy}
-                      className="ml-auto bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm disabled:opacity-50"
                     >
                       Delete
                     </button>
                   </div>
-                </div>
+                </li>
               )
             })}
-          </div>
+          </ul>
         ) : (
-          <p className="text-center py-12 text-gray-400">Start creating your tasks!</p>
+          <p className="status-message subtle">Start creating your tasks</p>
         )}
       </div>
       <div ref={confettiRootRef} className="confetti-root" aria-hidden="true" />
+      </div>
     </div>
   )
 }
