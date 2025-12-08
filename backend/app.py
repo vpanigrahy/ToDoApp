@@ -7,7 +7,7 @@ from uuid import uuid4
 # read environment variables for FLASK_SECRET_KEY, CORS_ORIGINS, etc., via os.getenv
 import os
 # used for validating due dates, capturing completion timestamps, and computing analytics windows
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 
 
 # Flask instantiates the web object
@@ -445,8 +445,8 @@ def analytics_summary():
             """
             SELECT 
                 COUNT(*) as total_completed,
-                COUNT(CASE WHEN completed_at <= due_date THEN 1 END) as completed_on_time,
-                AVG(EXTRACT(EPOCH FROM (completed_at - created_at)) / 86400) as avg_completion_days
+                COUNT(CASE WHEN DATE(completed_at) <= due_date THEN 1 END) as completed_on_time,
+                AVG(EXTRACT(EPOCH FROM (completed_at - created_at))) AS avg_completion_seconds
             FROM tasks
             WHERE user_id = %s 
                 AND completed = true 
@@ -459,9 +459,16 @@ def analytics_summary():
         
         total_completed = row[0] or 0
         completed_on_time = row[1] or 0
-        avg_completion_days = float(row[2]) if row[2] else 0.0
+        avg_completion_seconds = float(row[2]) if row[2] is not None else 0.0
+
+        # Convert seconds → minutes / hours / days
+        avg_completion_minutes = avg_completion_seconds / 60.0
+        avg_completion_hours = avg_completion_seconds / 3600.0
+        avg_completion_days = avg_completion_seconds / 86400.0
         
-        on_time_rate = (completed_on_time / total_completed) if total_completed > 0 else 0.0
+        on_time_rate = (
+            completed_on_time / total_completed if total_completed > 0 else 0.0
+        )
         
         # Get tasks completed this week
         cur.execute(
@@ -480,7 +487,9 @@ def analytics_summary():
         "total_completed": total_completed,
         "completed_on_time": completed_on_time,
         "on_time_rate": round(on_time_rate, 2),
-        "avg_completion_days": round(avg_completion_days, 1),
+        "avg_completion_days": avg_completion_days,
+        "avg_completion_hours": round(avg_completion_hours, 2),
+        "avg_completion_minutes": round(avg_completion_minutes, 2),
         "tasks_completed_this_week": tasks_this_week,
         "time_window_days": days
     })
@@ -502,7 +511,7 @@ def analytics_streak():
             SELECT 
                 DATE(completed_at) as completion_date,
                 CASE 
-                    WHEN completed_at <= due_date THEN true
+                    WHEN DATE(completed_at) <= due_date THEN true
                     ELSE false
                 END as on_time
             FROM tasks
@@ -649,14 +658,14 @@ def completed_tasks():
                 priority,
                 completed_at,
                 CASE 
-                    WHEN completed_at <= due_date THEN true
+                    WHEN DATE(completed_at) <= due_date THEN true
                     ELSE false
                 END as on_time
             FROM tasks
             WHERE user_id = %s 
                 AND completed = true
                 AND completed_at IS NOT NULL
-                AND completed_at >= NOW() - INTERVAL '%s days'
+                AND completed_at >= NOW() - (%s::int) * INTERVAL '1 day'
             ORDER BY completed_at DESC
             """,
             (user_id, days)

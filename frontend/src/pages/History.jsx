@@ -116,15 +116,21 @@ export default function History() {
                 <div className="flex-1">
                   <div className="flex items-center gap-3 mb-2">
                     <span className="text-2xl">{task.onTime ? '✅' : '❌'}</span>
-                    <h3 className="text-lg font-semibold text-gray-900">{task.name}</h3>
-                    <span className={`px-2 py-1 rounded text-xs font-medium ${
-                      task.priority === 'P1' ? 'bg-red-100 text-red-800' :
-                      task.priority === 'P2' ? 'bg-yellow-100 text-yellow-800' :
-                      'bg-blue-100 text-blue-800'
-                    }`}>
-                      {task.priority}
-                    </span>
-                  </div>
+                    <h3 className="text-lg font-semibold text-gray-900">
+                     {task.name}{' '}
+                       <span
+                         className={`ml-2 px-2 py-1 rounded text-xs font-medium ${
+                         task.priority === 'P1'
+                          ? 'bg-red-100 text-red-800'
+                          : task.priority === 'P2'
+                          ? 'bg-yellow-100 text-yellow-800'
+                          : 'bg-blue-100 text-blue-800'
+                        }`}
+                       >
+                         {task.priority}
+                        </span>
+                       </h3>
+                      </div>
                   
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm">
                     <div>

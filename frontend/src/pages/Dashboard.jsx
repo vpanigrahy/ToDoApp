@@ -24,7 +24,7 @@ export default function Dashboard() {
   fetchAnalyticsStreak().catch(() => ({ on_time_streak_days: 0 }))
 ])
 
-// Normalize dates to *local* Date objects so there is no 1-day shift
+//  Normalize dates to *local* Date objects so there is no 1-day shift
 const normalizedCFD = cfdDataResponse.map((item) => {
   // item.date is "YYYY-MM-DD"
   const [year, month, day] = item.date.split('-').map(Number)
@@ -141,17 +141,67 @@ setStreak(streakData)
           </p>
         </div>
 
-        {/* Card 3: Average Completion Time */}
+                {/* Card 3: Average Completion Time */}
         <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
-          <h3 className="text-sm font-medium text-purple-600 mb-2">Average Completion Time</h3>
+          <h3 className="text-sm font-medium text-purple-600 mb-2">
+            Average Completion Time
+          </h3>
+
           <div className="text-4xl font-bold text-gray-900 mb-3">
-            {summary.avg_completion_days} 
-            <span className="text-xl text-gray-500 ml-2">days</span>
+            {(() => {
+              // Prefer minutes from backend; fallback: convert days → minutes if needed
+              const hasMinutes =
+                summary && summary.avg_completion_minutes != null
+
+              const totalMinutes = hasMinutes
+                ? Number(summary.avg_completion_minutes)
+                : Number(summary?.avg_completion_days ?? 0) * 24 * 60
+
+              if (!Number.isFinite(totalMinutes) || totalMinutes <= 0) {
+                return (
+                  <>
+                    0 <span className="text-xl text-gray-500 ml-1">days</span>{' '}
+                    0 <span className="text-xl text-gray-500 ml-1">hours</span>{' '}
+                    0{' '}
+                    <span className="text-xl text-gray-500 ml-1">minutes</span>
+                  </>
+                )
+              }
+
+              const minutesPerDay = 24 * 60
+              let days = Math.floor(totalMinutes / minutesPerDay)
+              let remaining = totalMinutes - days * minutesPerDay
+              let hours = Math.floor(remaining / 60)
+              let minutes = Math.round(remaining - hours * 60)
+
+              // Normalize edge cases like 59.6 → 60 minutes
+              if (minutes === 60) {
+                minutes = 0
+                hours += 1
+              }
+              if (hours === 24) {
+                hours = 0
+                days += 1
+              }
+
+              return (
+                <>
+                  {days}{' '}
+                  <span className="text-xl text-gray-500 ml-1">days</span>{' '}
+                  {hours}{' '}
+                  <span className="text-xl text-gray-500 ml-1">hours</span>{' '}
+                  {minutes}{' '}
+                  <span className="text-xl text-gray-500 ml-1">minutes</span>
+                </>
+              )
+            })()}
           </div>
+
           <p className="text-sm text-purple-600">
             Average time from creation to completion
           </p>
         </div>
+
       </div>
 
       {/* Cumulative Flow Diagram */}
@@ -179,9 +229,9 @@ setStreak(streakData)
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
             <XAxis 
-               dataKey="date"
-               stroke="#9ca3af"
-              tick={{ fill: '#9ca3af' }}  
+              dataKey="date" 
+              stroke="#9ca3af"
+              tick={{ fill: '#9ca3af' }}
               tickFormatter={(value) => value.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
             />
             <YAxis 
