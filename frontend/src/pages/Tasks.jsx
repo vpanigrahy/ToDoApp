@@ -6,6 +6,13 @@ import {
   updateTask,
 } from '../api'
 
+// Parse "YYYY-MM-DD" as a local date (no timezone shift)
+const parseLocalDate = (isoDate) => {
+  if (!isoDate) return null
+  const [year, month, day] = isoDate.split('-').map(Number)
+  return new Date(year, month - 1, day)
+}
+
 export default function Tasks() {
   const [tasks, setTasks] = useState([])
   const [draft, setDraft] = useState({ name: '', dueDate: '', priority: 'P2', actionableText: '' })
@@ -32,7 +39,7 @@ export default function Tasks() {
       }
       return copy.sort((a, b) => score(b) - score(a))
     }
-    return copy.sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate))
+    return copy.sort((a, b) =>  parseLocalDate(a.dueDate) - parseLocalDate(b.dueDate))
   }
 
   const [filters, setFilters] = useState({ from: '', to: '', priority: '' })
@@ -98,7 +105,10 @@ export default function Tasks() {
     const today = new Date()
     today.setHours(0, 0, 0, 0)
     return tasks.filter(
-      (task) => !task.completed && new Date(task.dueDate) < today
+      (task) => {
+         const due = parseLocalDate(task.dueDate)
+         return !task.completed && due && due < today
+      }
     )
   }, [tasks])
 
@@ -108,7 +118,7 @@ export default function Tasks() {
     const dueDate = draft.dueDate.trim()
     const priority = draft.priority
     const actionableItems = draft.actionableText
-      .split('\\n')
+      .split('\n')
       .map((s) => s.trim())
       .filter(Boolean)
 
@@ -123,12 +133,12 @@ export default function Tasks() {
       return
     }
     
-    // Validate due date is not in the past or today
+    // Validate due date is not in the past 
     const today = new Date()
     today.setHours(0, 0, 0, 0)
-    const selectedDate = new Date(dueDate)
+    const selectedDate = parseLocalDate(dueDate)
     if (selectedDate < today) {
-      setFormError('Please select a future date.')
+         setFormError('Please select today’s date or a future date')
       return
     }
     
@@ -307,7 +317,7 @@ export default function Tasks() {
               <ul className="mt-2 space-y-1">
                 {overdueTasks.slice(0, 3).map((task) => (
                   <li key={task.id} className="text-sm">
-                    • {task.name} (Due: {new Date(task.dueDate).toLocaleDateString()})
+                    • {task.name} (Due: {parseLocalDate(task.dueDate)?.toLocaleDateString()})
                   </li>
                 ))}
                 {overdueTasks.length > 3 && (
@@ -425,9 +435,11 @@ export default function Tasks() {
                 // Hide completed tasks if toggle is on
                 if (hideCompleted && task.completed) return false
                 
-                const d = new Date(task.dueDate)
-                const fromOk = !filters.from || d >= new Date(filters.from)
-                const toOk = !filters.to || d <= new Date(filters.to)
+                const d = parseLocalDate(task.dueDate)
+                const fromDate = filters.from ? parseLocalDate(filters.from) : null
+                const toDate = filters.to ? parseLocalDate(filters.to) : null
+                const fromOk = !fromDate || d >= fromDate
+                const toOk = !toDate || d <= toDate
                 const prOk = !filters.priority || task.priority === filters.priority
                 return fromOk && toOk && prOk
               })
@@ -435,12 +447,16 @@ export default function Tasks() {
               const isBusy = pendingIds.has(task.id)
               const todayMidnight = new Date()
               todayMidnight.setHours(0, 0, 0, 0)
-              const isOverdue = !task.completed && new Date(task.dueDate) < todayMidnight
+              const due = parseLocalDate(task.dueDate)
+              const isOverdue = !task.completed && due && due < todayMidnight
               return (
                 <li key={task.id} className={`task-card ${task.completed ? 'completed' : 'inprogress'}`}>
                   <div className="task-card-header">
                     <span className={`priority ${task.priority}`}>{task.priority}</span>
-                    <span className="due-date"><strong>Due</strong> {new Date(task.dueDate).toLocaleDateString()}</span>
+                    <span className="due-date">
+                      <strong>Due</strong>{' '}
+                      {parseLocalDate(task.dueDate)?.toLocaleDateString()}
+                    </span>
                   </div>
                   <div className="task-card-body">
                     <h3 className="task-name">{task.name}</h3>
