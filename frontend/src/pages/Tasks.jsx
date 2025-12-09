@@ -51,7 +51,7 @@ export default function Tasks() {
     } finally {
       setIsLoading(false)
     }
-    return copy.sort((a, b) =>  parseLocalDate(a.dueDate) - parseLocalDate(b.dueDate))
+  
   }
 
   const handleAddTask = () => {
@@ -178,23 +178,33 @@ export default function Tasks() {
 
   // Filter and sort tasks
   const filteredTasks = tasks
-    .filter(task => {
-      if (dateFrom && new Date(task.dueDate) < new Date(dateFrom)) return false
-      if (dateTo && new Date(task.dueDate) > new Date(dateTo)) return false
-      if (priorityFilter && task.priority !== priorityFilter) return false
-      return true
-    })
-    .sort((a, b) => {
-      if (sortBy === 'earliest') {
-        return new Date(a.dueDate) - new Date(b.dueDate)
-      } else if (sortBy === 'latest') {
-        return new Date(b.dueDate) - new Date(a.dueDate)
-      } else if (sortBy === 'priority') {
-        const priorityOrder = { 'P1': 1, 'P2': 2, 'P3': 3 }
-        return priorityOrder[a.priority] - priorityOrder[b.priority]
-      }
-      return 0
-    })
+  .filter(task => {
+    const taskDue = parseLocalDate(task.dueDate)
+
+    if (dateFrom) {
+      const from = parseLocalDate(dateFrom)
+      if (taskDue < from) return false
+    }
+
+    if (dateTo) {
+      const to = parseLocalDate(dateTo)
+      if (taskDue > to) return false
+    }
+
+    if (priorityFilter && task.priority !== priorityFilter) return false
+    return true
+  })
+  .sort((a, b) => {
+    if (sortBy === 'earliest') {
+      return parseLocalDate(a.dueDate) - parseLocalDate(b.dueDate)
+    } else if (sortBy === 'latest') {
+      return parseLocalDate(b.dueDate) - parseLocalDate(a.dueDate)
+    } else if (sortBy === 'priority') {
+      const priorityOrder = { P1: 1, P2: 2, P3: 3 }
+      return priorityOrder[a.priority] - priorityOrder[b.priority]
+    }
+    return 0
+  })
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#f3f4f6', padding: '2rem' }}>
@@ -534,7 +544,16 @@ export default function Tasks() {
                       </div>
                     </td>
                     <td style={{ padding: '1rem', color: '#111827' }}>
-                      {new Date(task.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      {(() => {
+                        const due = parseLocalDate(task.dueDate)
+                        return due
+                         ? due.toLocaleDateString('en-US', {
+                            month: 'short',
+                            day: 'numeric',
+                            year: 'numeric',
+                          })
+                         : ''
+                         })()}
                     </td>
                     <td style={{ padding: '1rem' }}>
                       <span style={{
