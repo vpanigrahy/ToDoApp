@@ -26,7 +26,8 @@ export default function Tasks() {
     priority: 'P2',
     progress: 0,
     totalTime: 1,
-    actionableText: ''
+    actionableText: '',
+    completed: false,
   })
   
   // Filter states
@@ -61,7 +62,8 @@ export default function Tasks() {
       priority: 'P2',
       progress: 0,
       totalTime: 1,
-      actionableText: ''
+      actionableText: '',
+      completed: false,
     })
     setShowModal(true)
   }
@@ -74,7 +76,8 @@ export default function Tasks() {
       priority: task.priority || 'P2',
       progress: task.completionPercent || 0,
       totalTime: task.totalTime || 1,
-      actionableText: Array.isArray(task.actionableItems) ? task.actionableItems.join('\n') : ''
+      actionableText: Array.isArray(task.actionableItems) ? task.actionableItems.join('\n') : '',
+      completed: Boolean(task.completed),
     })
     setShowModal(true)
   }
@@ -103,7 +106,8 @@ export default function Tasks() {
         priority: modalForm.priority,
         completionPercent: modalForm.progress,
         totalTime: modalForm.totalTime,
-        actionableItems: actionableItems
+        actionableItems: actionableItems,
+        completed: modalForm.completed,
       }
 
       if (editingTask) {
@@ -144,6 +148,14 @@ export default function Tasks() {
 
   const calculateRemaining = (totalTime, progress) => {
     return (totalTime * (100 - progress) / 100).toFixed(1)
+  }
+
+  const helperTextStyle = {
+    fontSize: '0.875rem',
+    color: '#6b7280',
+    marginTop: '0.5rem',
+    marginBottom: 0,
+    lineHeight: 1.4,
   }
 
   const getPriorityLabel = (priority) => {
@@ -349,12 +361,13 @@ export default function Tasks() {
         padding: '1.5rem',
         borderRadius: '0.75rem',
         boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-        display: 'flex',
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
         gap: '1.5rem',
-        alignItems: 'flex-start'
+        alignItems: 'start'
       }}>
         {/* Sort By */}
-        <div style={{ flex: '1.2 1 0' }}>
+        <div style={{ flex: '1 1 240px', display: 'flex', flexDirection: 'column' }}>
           <label style={{ display: 'block', fontWeight: '600', marginBottom: '0.5rem', color: '#111827' }}>
             Sort By
           </label>
@@ -374,13 +387,13 @@ export default function Tasks() {
             <option value="latest">Latest Due Date</option>
             <option value="priority">Priority</option>
           </select>
-          <p style={{ fontSize: '0.875rem', color: '#6b7280', marginTop: '0.5rem' }}>
+          <p style={helperTextStyle}>
             Tasks with the earliest due dates first
           </p>
         </div>
 
         {/* Due Date Range */}
-        <div style={{ flex: '0.8 1 0' }}>
+        <div style={{ flex: '1 1 220px', display: 'flex', flexDirection: 'column' }}>
           <label style={{ display: 'block', fontWeight: '600', marginBottom: '0.5rem', color: '#111827' }}>
             Due Date Range
           </label>
@@ -414,7 +427,7 @@ export default function Tasks() {
         </div>
 
         {/* Priority Filter */}
-        <div style={{ flex: '1 1 0' }}>
+        <div style={{ flex: '1 1 240px', display: 'flex', flexDirection: 'column' }}>
           <label style={{ display: 'block', fontWeight: '600', marginBottom: '0.5rem', color: '#111827' }}>
             Priority Level
           </label>
@@ -435,9 +448,6 @@ export default function Tasks() {
             <option value="P2">P2 - Medium</option>
             <option value="P3">P3 - Low</option>
           </select>
-          <p style={{ fontSize: '0.875rem', color: '#6b7280', marginTop: '0.5rem' }}>
-            Filter by priority
-          </p>
         </div>
       </div>
 
@@ -642,7 +652,9 @@ export default function Tasks() {
               padding: '2rem',
               maxWidth: '500px',
               width: '100%',
-              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)'
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
+              maxHeight: '90vh',
+              overflowY: 'auto'
             }}
           >
             {/* Modal Header */}
@@ -780,6 +792,23 @@ export default function Tasks() {
                     </select>
                   </div>
 
+                  {/* Completed Toggle */}
+                  <label style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    fontWeight: '600',
+                    color: '#111827'
+                  }}>
+                    <input
+                      type="checkbox"
+                      checked={modalForm.completed}
+                      onChange={(e) => setModalForm({ ...modalForm, completed: e.target.checked })}
+                      style={{ width: '1rem', height: '1rem' }}
+                    />
+                    Mark task as completed
+                  </label>
+
                   {/* Actionable Items */}
                   <div style={{ flex: 1 }}>
                     <label style={{ display: 'block', fontWeight: '600', marginBottom: '0.5rem', color: '#111827' }}>
@@ -802,9 +831,6 @@ export default function Tasks() {
                         resize: 'vertical'
                       }}
                     />
-                    <p style={{ fontSize: '0.875rem', color: '#6b7280', marginTop: '0.5rem', margin: 0 }}>
-                      Enter each actionable item on a new line
-                    </p>
                   </div>
                 </div>
               </div>
