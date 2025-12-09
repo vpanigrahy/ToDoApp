@@ -136,7 +136,7 @@ export default function History() {
                     <div>
                       <span className="text-gray-500">Due Date: </span>
                       <span className="text-gray-900">
-                        {new Date(task.dueDate).toLocaleDateString()}
+                        {new Date(new Date(task.dueDate).getTime() + 24 * 60 * 60 * 1000).toLocaleDateString()}
                       </span>
                     </div>
                     <div>
