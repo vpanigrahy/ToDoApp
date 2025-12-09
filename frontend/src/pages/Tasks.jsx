@@ -2,6 +2,13 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { createTask, deleteTask, fetchTasks, updateTask, logout } from '../api'
 
+// Parse "YYYY-MM-DD" as a local date (no timezone shift)
+const parseLocalDate = (isoDate) => {
+  if (!isoDate) return null
+  const [year, month, day] = isoDate.split('-').map(Number)
+  return new Date(year, month - 1, day)
+}
+
 export default function Tasks() {
   const [tasks, setTasks] = useState([])
   const [isLoading, setIsLoading] = useState(true)
@@ -43,6 +50,7 @@ export default function Tasks() {
     } finally {
       setIsLoading(false)
     }
+    return copy.sort((a, b) =>  parseLocalDate(a.dueDate) - parseLocalDate(b.dueDate))
   }
 
   const handleAddTask = () => {
