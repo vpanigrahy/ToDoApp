@@ -344,12 +344,9 @@ def update_task(task_id: str):
         if not due_date:
             return jsonify({"message": "Due date cannot be empty."}), 400
         
-        # Validate due date is not in the past
+        # Validate due date format only (allow past dates for updates)
         try:
-            due_date_obj = datetime.strptime(due_date, "%Y-%m-%d").date()
-            today = date.today()
-            if due_date_obj < today:
-                return jsonify({"message": "Due date cannot be in the past. Please select a future date."}), 400
+            datetime.strptime(due_date, "%Y-%m-%d").date()
         except ValueError:
             return jsonify({"message": "Invalid due date format. Please use YYYY-MM-DD."}), 400
         
