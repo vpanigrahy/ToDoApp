@@ -208,6 +208,18 @@ def logout():
     return "", 204
 
 
+@app.get("/api/me")
+def get_current_user():
+    # Get current logged-in user information from session
+    user_id = session.get("user_id")
+    username = session.get("username")
+    
+    if not user_id:
+        return jsonify({"message": "Not authenticated"}), 401
+    
+    return jsonify({"id": user_id, "username": username})
+
+
 @app.get("/api/tasks")
 def list_tasks():
     # Tasks: return all tasks for current user, ordered by due_date then created_at.

@@ -73,6 +73,10 @@ export function fetchUser(userId) {
   return request(`/api/users/${userId}`)
 }
 
+export function getCurrentUser() {
+  return request('/api/me')
+}
+
 // Analytics APIs
 export function fetchAnalyticsSummary(days = 30) {
   return request(`/api/analytics/summary?days=${days}`)
