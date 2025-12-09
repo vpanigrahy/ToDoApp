@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { createTask, deleteTask, fetchTasks, updateTask, logout } from '../api'
+import { createTask, deleteTask, fetchTasks, updateTask, logout, getCurrentUser } from '../api'
 
 // Parse "YYYY-MM-DD" as a local date (no timezone shift)
 const parseLocalDate = (isoDate) => {
@@ -17,7 +17,9 @@ export default function Tasks() {
   const [editingTask, setEditingTask] = useState(null)
   const [expandedTaskId, setExpandedTaskId] = useState(null)
   const [showMenu, setShowMenu] = useState(false)
+  const [username, setUsername] = useState('')
   const navigate = useNavigate()
+  const menuRef = useRef(null)
   
   // Modal form state
   const [modalForm, setModalForm] = useState({
@@ -35,10 +37,29 @@ export default function Tasks() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [priorityFilter, setPriorityFilter] = useState('')
+  const [showCompletedTasks, setShowCompletedTasks] = useState(true)
 
   useEffect(() => {
     loadTasks()
+    loadUser()
   }, [])
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (menuRef.current && !menuRef.current.contains(event.target)) {
+        setShowMenu(false)
+      }
+    }
+
+    if (showMenu) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [showMenu])
 
   const loadTasks = async () => {
     setIsLoading(true)
@@ -51,7 +72,15 @@ export default function Tasks() {
     } finally {
       setIsLoading(false)
     }
-  
+  }
+
+  const loadUser = async () => {
+    try {
+      const user = await getCurrentUser()
+      setUsername(user.username || 'User')
+    } catch (error) {
+      setUsername('User')
+    }
   }
 
   const handleAddTask = () => {
@@ -100,6 +129,9 @@ export default function Tasks() {
         .map(s => s.trim())
         .filter(Boolean)
 
+      // Auto-complete when progress is 100%
+      const isCompleted = modalForm.progress === 100
+
       const taskData = {
         name: modalForm.name,
         dueDate: modalForm.dueDate,
@@ -107,7 +139,7 @@ export default function Tasks() {
         completionPercent: modalForm.progress,
         totalTime: modalForm.totalTime,
         actionableItems: actionableItems,
-        completed: modalForm.completed,
+        completed: isCompleted,
       }
 
       if (editingTask) {
@@ -179,6 +211,9 @@ export default function Tasks() {
   // Filter and sort tasks
   const filteredTasks = tasks
   .filter(task => {
+    // Filter by completed status based on toggle
+    if (!showCompletedTasks && task.completed) return false
+
     const taskDue = parseLocalDate(task.dueDate)
 
     if (dateFrom) {
@@ -211,9 +246,37 @@ export default function Tasks() {
       {/* Header with Menu */}
       <div style={{ maxWidth: '1400px', margin: '0 auto', marginBottom: '2rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h1 style={{ fontSize: '2.25rem', fontWeight: 'bold', color: '#111827', margin: 0 }}>
+              Welcome {username}
+            </h1>
+            <p style={{ color: '#6b7280', marginTop: '0.25rem', fontSize: '1rem' }}>
+              Manage and prioritize your tasks efficiently
+            </p>
+          </div>
+          
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <button
+              onClick={handleAddTask}
+              style={{
+                backgroundColor: '#000000',
+                color: 'white',
+                padding: '0.75rem 1.5rem',
+                borderRadius: '0.5rem',
+                border: 'none',
+                fontSize: '1rem',
+                fontWeight: '600',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem'
+              }}
+            >
+              <span style={{ fontSize: '1.25rem' }}>+</span> Add Task
+            </button>
+
             {/* Menu Button */}
-            <div style={{ position: 'relative' }}>
+            <div ref={menuRef} style={{ position: 'relative' }}>
               <button
                 onClick={() => setShowMenu(!showMenu)}
                 style={{
@@ -240,7 +303,7 @@ export default function Tasks() {
                 <div style={{
                   position: 'absolute',
                   top: '100%',
-                  left: 0,
+                  right: 0,
                   marginTop: '0.5rem',
                   backgroundColor: 'white',
                   border: '1px solid #d1d5db',
@@ -331,35 +394,7 @@ export default function Tasks() {
                 </div>
               )}
             </div>
-            
-            <div>
-              <h1 style={{ fontSize: '2.25rem', fontWeight: 'bold', color: '#111827', margin: 0 }}>
-                Priority Tool
-              </h1>
-              <p style={{ color: '#6b7280', marginTop: '0.25rem', fontSize: '1rem' }}>
-                Manage and prioritize your tasks efficiently
-              </p>
-            </div>
           </div>
-          
-          <button
-            onClick={handleAddTask}
-            style={{
-              backgroundColor: '#000000',
-              color: 'white',
-              padding: '0.75rem 1.5rem',
-              borderRadius: '0.5rem',
-              border: 'none',
-              fontSize: '1rem',
-              fontWeight: '600',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem'
-            }}
-          >
-            <span style={{ fontSize: '1.25rem' }}>+</span> Add Task
-          </button>
         </div>
       </div>
 
@@ -368,96 +403,127 @@ export default function Tasks() {
         maxWidth: '1400px',
         margin: '0 auto 2rem',
         backgroundColor: 'white',
-        padding: '1.5rem',
+        padding: '1.5rem 2rem',
         borderRadius: '0.75rem',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-        gap: '1.5rem',
-        alignItems: 'start'
+        boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
       }}>
-        {/* Sort By */}
-        <div style={{ flex: '1 1 240px', display: 'flex', flexDirection: 'column' }}>
-          <label style={{ display: 'block', fontWeight: '600', marginBottom: '0.5rem', color: '#111827' }}>
-            Sort By
-          </label>
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
-            style={{
-              width: '100%',
-              padding: '0.625rem 1rem',
-              border: '1px solid #d1d5db',
-              borderRadius: '0.5rem',
-              fontSize: '1rem',
-              backgroundColor: '#f9fafb'
-            }}
-          >
-            <option value="earliest">Earliest Due Date</option>
-            <option value="latest">Latest Due Date</option>
-            <option value="priority">Priority</option>
-          </select>
-          <p style={helperTextStyle}>
-            Tasks with the earliest due dates first
-          </p>
+        <div style={{
+          display: 'flex',
+          gap: '3rem',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between'
+        }}>
+          {/* Sort By */}
+          <div style={{ flex: '1 1 0', minWidth: '280px', maxWidth: '360px' }}>
+            <label style={{ display: 'block', fontWeight: '600', marginBottom: '0.5rem', color: '#111827' }}>
+              Sort By
+            </label>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '0.625rem 1rem',
+                border: '1px solid #d1d5db',
+                borderRadius: '0.5rem',
+                fontSize: '1rem',
+                backgroundColor: '#f9fafb'
+              }}
+            >
+              <option value="earliest">Earliest Due Date</option>
+              <option value="latest">Latest Due Date</option>
+              <option value="priority">Priority</option>
+            </select>
+          </div>
+
+          {/* Due Date Range */}
+          <div style={{ flex: '1 1 0', minWidth: '280px', maxWidth: '380px' }}>
+            <label style={{ display: 'block', fontWeight: '600', marginBottom: '0.5rem', color: '#111827' }}>
+              Due Date Range
+            </label>
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              placeholder="dd-mm-yyyy"
+              style={{
+                width: '100%',
+                padding: '0.625rem 1rem',
+                border: '1px solid #d1d5db',
+                borderRadius: '0.5rem',
+                marginBottom: '0.5rem',
+                backgroundColor: '#f9fafb'
+              }}
+            />
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              placeholder="dd-mm-yyyy"
+              style={{
+                width: '100%',
+                padding: '0.625rem 1rem',
+                border: '1px solid #d1d5db',
+                borderRadius: '0.5rem',
+                backgroundColor: '#f9fafb'
+              }}
+            />
+          </div>
+
+          {/* Priority Filter */}
+          <div style={{ flex: '1 1 0', minWidth: '260px', maxWidth: '340px' }}>
+            <label style={{ display: 'block', fontWeight: '600', marginBottom: '0.5rem', color: '#111827' }}>
+              Priority Level
+            </label>
+            <select
+              value={priorityFilter}
+              onChange={(e) => setPriorityFilter(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '0.625rem 1rem',
+                border: '1px solid #d1d5db',
+                borderRadius: '0.5rem',
+                fontSize: '1rem',
+                backgroundColor: '#f9fafb'
+              }}
+            >
+              <option value="">All Priorities</option>
+              <option value="P1">P1 - High</option>
+              <option value="P2">P2 - Medium</option>
+              <option value="P3">P3 - Low</option>
+            </select>
+          </div>
         </div>
 
-        {/* Due Date Range */}
-        <div style={{ flex: '1 1 220px', display: 'flex', flexDirection: 'column' }}>
-          <label style={{ display: 'block', fontWeight: '600', marginBottom: '0.5rem', color: '#111827' }}>
-            Due Date Range
-          </label>
-          <input
-            type="date"
-            value={dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
-            placeholder="dd-mm-yyyy"
-            style={{
-              width: '100%',
-              padding: '0.625rem 1rem',
-              border: '1px solid #d1d5db',
-              borderRadius: '0.5rem',
-              marginBottom: '0.5rem',
-              backgroundColor: '#f9fafb'
+        {/* Clear Filters Button */}
+        <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'flex-end' }}>
+          <button
+            onClick={() => {
+              setSortBy('earliest')
+              setDateFrom('')
+              setDateTo('')
+              setPriorityFilter('')
             }}
-          />
-          <input
-            type="date"
-            value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
-            placeholder="dd-mm-yyyy"
             style={{
-              width: '100%',
-              padding: '0.625rem 1rem',
-              border: '1px solid #d1d5db',
+              backgroundColor: '#3b82f6',
+              color: 'white',
+              padding: '0.5rem 1.25rem',
               borderRadius: '0.5rem',
-              backgroundColor: '#f9fafb'
+              border: 'none',
+              fontSize: '0.875rem',
+              fontWeight: '600',
+              cursor: 'pointer',
+              transition: 'background-color 0.2s ease'
             }}
-          />
-        </div>
-
-        {/* Priority Filter */}
-        <div style={{ flex: '1 1 240px', display: 'flex', flexDirection: 'column' }}>
-          <label style={{ display: 'block', fontWeight: '600', marginBottom: '0.5rem', color: '#111827' }}>
-            Priority Level
-          </label>
-          <select
-            value={priorityFilter}
-            onChange={(e) => setPriorityFilter(e.target.value)}
-            style={{
-              width: '100%',
-              padding: '0.625rem 1rem',
-              border: '1px solid #d1d5db',
-              borderRadius: '0.5rem',
-              fontSize: '1rem',
-              backgroundColor: '#f9fafb'
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = '#2563eb'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = '#3b82f6'
             }}
           >
-            <option value="">All Priorities</option>
-            <option value="P1">P1 - High</option>
-            <option value="P2">P2 - Medium</option>
-            <option value="P3">P3 - Low</option>
-          </select>
+            Clear Filters
+          </button>
         </div>
       </div>
 
@@ -474,6 +540,45 @@ export default function Tasks() {
           {serverError}
         </div>
       )}
+
+      {/* Toggle Completed Tasks */}
+      <div style={{
+        maxWidth: '1400px',
+        margin: '0 auto 1rem',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.75rem'
+      }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer', fontSize: '0.875rem', color: '#6b7280' }}>
+          <div
+            onClick={() => setShowCompletedTasks(!showCompletedTasks)}
+            style={{
+              position: 'relative',
+              width: '44px',
+              height: '24px',
+              backgroundColor: showCompletedTasks ? '#10b981' : '#d1d5db',
+              borderRadius: '12px',
+              transition: 'background-color 0.2s ease',
+              cursor: 'pointer'
+            }}
+          >
+            <div style={{
+              position: 'absolute',
+              top: '2px',
+              left: showCompletedTasks ? '22px' : '2px',
+              width: '20px',
+              height: '20px',
+              backgroundColor: 'white',
+              borderRadius: '50%',
+              transition: 'left 0.2s ease',
+              boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+            }} />
+          </div>
+          <span style={{ fontWeight: '500', color: '#111827' }}>
+            {showCompletedTasks ? 'Hide Completed Tasks' : 'Show Completed Tasks'}
+          </span>
+        </label>
+      </div>
 
       {/* Tasks Table */}
       <div style={{
@@ -508,7 +613,14 @@ export default function Tasks() {
             <tbody>
               {filteredTasks.map((task, index) => (
                 <>
-                  <tr key={task.id} style={{ borderBottom: expandedTaskId === task.id ? 'none' : '1px solid #e5e7eb' }}>
+                  <tr 
+                    key={task.id} 
+                    style={{ 
+                      borderBottom: expandedTaskId === task.id ? 'none' : '1px solid #e5e7eb',
+                      backgroundColor: task.completed ? '#f0fdf4' : 'white',
+                      opacity: task.completed ? 0.7 : 1
+                    }}
+                  >
                     <td style={{ padding: '1rem', color: '#111827' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                         {task.actionableItems && task.actionableItems.length > 0 && (
@@ -752,13 +864,25 @@ export default function Tasks() {
                   <div>
                     <label style={{ display: 'block', fontWeight: '600', marginBottom: '0.5rem', color: '#111827' }}>
                       Progress: {modalForm.progress}%
+                      {modalForm.progress === 100 && (
+                        <span style={{ marginLeft: '0.5rem', color: '#10b981', fontSize: '0.875rem' }}>
+                          ✓ Completed
+                        </span>
+                      )}
                     </label>
                     <input
                       type="range"
                       min="0"
                       max="100"
                       value={modalForm.progress}
-                      onChange={(e) => setModalForm({ ...modalForm, progress: parseInt(e.target.value) })}
+                      onChange={(e) => {
+                        const newProgress = parseInt(e.target.value)
+                        setModalForm({ 
+                          ...modalForm, 
+                          progress: newProgress,
+                          completed: newProgress === 100
+                        })
+                      }}
                       style={{ width: '100%', accentColor: '#000000' }}
                     />
                   </div>
@@ -810,23 +934,6 @@ export default function Tasks() {
                       <option value="P3">P3 - Low</option>
                     </select>
                   </div>
-
-                  {/* Completed Toggle */}
-                  <label style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.5rem',
-                    fontWeight: '600',
-                    color: '#111827'
-                  }}>
-                    <input
-                      type="checkbox"
-                      checked={modalForm.completed}
-                      onChange={(e) => setModalForm({ ...modalForm, completed: e.target.checked })}
-                      style={{ width: '1rem', height: '1rem' }}
-                    />
-                    Mark task as completed
-                  </label>
 
                   {/* Actionable Items */}
                   <div style={{ flex: 1 }}>
