@@ -1,10 +1,15 @@
+# Enables better type hinting
 from __future__ import annotations
 
+# Provides access to environment variables for database configuration
 import os
+# PostgreSQL database adapter for Python
 import psycopg
+# Provides the contextmanager decorator for creating context managers
 from contextlib import contextmanager
 
 
+# Constructs database connection string from environment variables
 def _get_db_dsn() -> str:
     host = os.getenv("PGHOST", "localhost")
     port = os.getenv("PGPORT", "5432")
@@ -14,6 +19,7 @@ def _get_db_dsn() -> str:
     return f"host={host} port={port} dbname={dbname} user={user} password={password}"
 
 
+# Context manager for database operations with automatic connection management and commit
 @contextmanager
 def db_cursor():
     with psycopg.connect(_get_db_dsn()) as conn:
@@ -22,7 +28,9 @@ def db_cursor():
             conn.commit()
 
 
+# Creates database tables if they don't exist and adds any missing columns to existing tables
 def init_schema() -> None:
+    # SQL to create users table with authentication fields
     create_users = (
         """
         CREATE TABLE IF NOT EXISTS users (
@@ -34,6 +42,7 @@ def init_schema() -> None:
         """
     )
 
+    # SQL to create tasks table with all task properties and foreign key to users
     create_tasks = (
         """
         CREATE TABLE IF NOT EXISTS tasks (
@@ -52,6 +61,7 @@ def init_schema() -> None:
     )
 
     with db_cursor() as cur:
+        # Create base tables
         cur.execute(create_users)
         cur.execute(create_tasks)
         # In case table existed before without actionable_items, add it
