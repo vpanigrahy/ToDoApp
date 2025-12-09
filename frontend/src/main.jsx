@@ -14,9 +14,9 @@ createRoot(document.getElementById('root')).render(
   <StrictMode>
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Layout />}>
-          <Route index element={<Navigate to="/login" replace />} />
-          <Route path="login" element={<Login />} />
+        <Route path="/" element={<Navigate to="/login" replace />} />
+        <Route path="/login" element={<Login />} />
+        <Route element={<Layout />}>
           <Route path="tasks" element={<Tasks />} />
           <Route path="analytics" element={<Dashboard />} />
           <Route path="completed" element={<History />} />

@@ -1,565 +1,844 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import {
-  createTask,
-  deleteTask,
-  fetchTasks,
-  updateTask,
-} from '../api'
+import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { createTask, deleteTask, fetchTasks, updateTask, logout } from '../api'
 
 export default function Tasks() {
   const [tasks, setTasks] = useState([])
-  const [draft, setDraft] = useState({ name: '', dueDate: '', priority: 'P2', actionableText: '' })
-  const [formError, setFormError] = useState('')
-  const [serverError, setServerError] = useState('')
-  const [isSubmitting, setIsSubmitting] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
-  const [pendingIds, setPendingIds] = useState(() => new Set())
-  const confettiRootRef = useRef(null)
-
-  const [sortMode, setSortMode] = useState('EDD')
-  const sortByStrategy = (list, mode = sortMode) => {
-    const copy = [...list]
-    if (mode === 'SPT') {
-      return copy.sort(
-        (a, b) => (Array.isArray(a.actionableItems) ? a.actionableItems.length : 0) - (Array.isArray(b.actionableItems) ? b.actionableItems.length : 0)
-      )
-    }
-    if (mode === 'WSPT') {
-      const weight = (p) => (p === 'P1' ? 3 : p === 'P2' ? 2 : 1)
-      const score = (t) => {
-        const est = Array.isArray(t.actionableItems) ? t.actionableItems.length : 0
-        return est > 0 ? weight(t.priority) / est : weight(t.priority)
-      }
-      return copy.sort((a, b) => score(b) - score(a))
-    }
-    return copy.sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate))
-  }
-
-  const [filters, setFilters] = useState({ from: '', to: '', priority: '' })
-  const [hideCompleted, setHideCompleted] = useState(false)
-  const [showOverdueAlert, setShowOverdueAlert] = useState(true)
-
-  const markPending = (id) => {
-    setPendingIds((current) => {
-      const next = new Set(current)
-      next.add(id)
-      return next
-    })
-  }
-
-  const releasePending = (id) => {
-    setPendingIds((current) => {
-      const next = new Set(current)
-      next.delete(id)
-      return next
-    })
-  }
-
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    setTasks((current) => sortByStrategy(current, sortMode))
-  }, [sortMode])
+  const [serverError, setServerError] = useState('')
+  const [showModal, setShowModal] = useState(false)
+  const [editingTask, setEditingTask] = useState(null)
+  const [expandedTaskId, setExpandedTaskId] = useState(null)
+  const [showMenu, setShowMenu] = useState(false)
+  const navigate = useNavigate()
+  
+  // Modal form state
+  const [modalForm, setModalForm] = useState({
+    name: '',
+    dueDate: '',
+    priority: 'P2',
+    progress: 0,
+    totalTime: 1,
+    actionableText: ''
+  })
+  
+  // Filter states
+  const [sortBy, setSortBy] = useState('earliest')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
+  const [priorityFilter, setPriorityFilter] = useState('')
 
   useEffect(() => {
-    let cancelled = false
-
-    const loadTasks = async () => {
-      setIsLoading(true)
-      try {
-        const data = await fetchTasks()
-        if (!cancelled) {
-          setTasks(sortByStrategy(data))
-          setServerError('')
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setServerError(error.message || 'Failed to load tasks')
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoading(false)
-        }
-      }
-    }
-
     loadTasks()
-
-    return () => {
-      cancelled = true
-    }
   }, [])
 
-  const remainingCount = useMemo(
-    () => tasks.filter((task) => !task.completed).length,
-    [tasks],
-  )
-
-  const overdueTasks = useMemo(() => {
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    return tasks.filter(
-      (task) => !task.completed && new Date(task.dueDate) < today
-    )
-  }, [tasks])
-
-  const handleSubmit = async (event) => {
-    event.preventDefault()
-    const name = draft.name.trim()
-    const dueDate = draft.dueDate.trim()
-    const priority = draft.priority
-    const actionableItems = draft.actionableText
-      .split('\\n')
-      .map((s) => s.trim())
-      .filter(Boolean)
-
-    // Enhanced frontend validation
-    if (!name) {
-      setFormError('Task name is required and cannot be empty.')
-      return
-    }
-    
-    if (!dueDate) {
-      setFormError('Due date is required.')
-      return
-    }
-    
-    // Validate due date is not in the past or today
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const selectedDate = new Date(dueDate)
-    if (selectedDate < today) {
-      setFormError('Please select a future date.')
-      return
-    }
-    
-    if (!priority || !['P1', 'P2', 'P3'].includes(priority)) {
-      setFormError('Please select a valid priority level (P1, P2, or P3).')
-      return
-    }
-    
-    if (actionableItems.length === 0) {
-      setFormError('Actionable items cannot be empty. Please add at least one item.')
-      return
-    }
-
+  const loadTasks = async () => {
+    setIsLoading(true)
     try {
-      setIsSubmitting(true)
-      const createdTask = await createTask({ name, dueDate, priority, actionableItems, completionPercent: 0 })
-      setTasks((current) => sortByStrategy([...current, createdTask]))
-      setDraft({ name: '', dueDate: '', priority: 'P2', actionableText: '' })
-      setFormError('')
+      const data = await fetchTasks()
+      setTasks(data)
       setServerError('')
     } catch (error) {
-      setServerError(error.message || 'Unable to save the new task.')
+      setServerError(error.message || 'Failed to load tasks')
     } finally {
-      setIsSubmitting(false)
+      setIsLoading(false)
     }
   }
 
-  const triggerConfetti = () => {
-    const root = confettiRootRef.current
-    if (!root) return
-    const burst = document.createElement('div')
-    burst.className = 'confetti-burst'
-    for (let i = 0; i < 24; i++) {
-      const piece = document.createElement('span')
-      piece.className = 'confetti-piece'
-      piece.style.setProperty('--i', String(i))
-      burst.appendChild(piece)
-    }
-    root.appendChild(burst)
-    setTimeout(() => { burst.remove() }, 1500)
+  const handleAddTask = () => {
+    setEditingTask(null)
+    setModalForm({
+      name: '',
+      dueDate: '',
+      priority: 'P2',
+      progress: 0,
+      totalTime: 1,
+      actionableText: ''
+    })
+    setShowModal(true)
   }
 
-  const toggleTask = async (task) => {
-    const targetId = task.id
-    const nextCompleted = !task.completed
-    markPending(targetId)
+  const handleEditTask = (task) => {
+    setEditingTask(task)
+    setModalForm({
+      name: task.name || '',
+      dueDate: task.dueDate?.split('T')[0] || '',
+      priority: task.priority || 'P2',
+      progress: task.completionPercent || 0,
+      totalTime: task.totalTime || 1,
+      actionableText: Array.isArray(task.actionableItems) ? task.actionableItems.join('\n') : ''
+    })
+    setShowModal(true)
+  }
+
+  const handleModalSubmit = async (e) => {
+    e.preventDefault()
+    
+    if (!modalForm.name.trim()) {
+      alert('Task name is required')
+      return
+    }
+    if (!modalForm.dueDate) {
+      alert('Due date is required')
+      return
+    }
 
     try {
-      const updatedTask = await updateTask(targetId, {
-        completed: nextCompleted,
-      })
-      setTasks((current) =>
-        sortByStrategy(
-          current.map((item) => (item.id === targetId ? updatedTask : item)),
-        ),
-      )
-      setServerError('')
-      if (nextCompleted) {
-        triggerConfetti()
+      const actionableItems = modalForm.actionableText
+        .split('\n')
+        .map(s => s.trim())
+        .filter(Boolean)
+
+      const taskData = {
+        name: modalForm.name,
+        dueDate: modalForm.dueDate,
+        priority: modalForm.priority,
+        completionPercent: modalForm.progress,
+        totalTime: modalForm.totalTime,
+        actionableItems: actionableItems
       }
+
+      if (editingTask) {
+        await updateTask(editingTask.id, taskData)
+      } else {
+        await createTask(taskData)
+      }
+      
+      await loadTasks()
+      setShowModal(false)
     } catch (error) {
-      setServerError(error.message || 'Unable to update the task.')
-    } finally {
-      releasePending(targetId)
+      alert(error.message || 'Failed to save task')
     }
   }
 
-  const removeTask = async (id) => {
-    markPending(id)
+  const handleDeleteTask = async (id) => {
+    if (window.confirm('Are you sure you want to delete this task?')) {
+      try {
+        await deleteTask(id)
+        await loadTasks()
+      } catch (error) {
+        alert(error.message || 'Failed to delete task')
+      }
+    }
+  }
+
+  const handleLogout = async () => {
     try {
-      await deleteTask(id)
-      setTasks((current) => current.filter((task) => task.id !== id))
-      setServerError('')
-    } catch (error) {
-      setServerError(error.message || 'Unable to delete the task.')
+      await logout()
     } finally {
-      releasePending(id)
+      navigate('/login')
     }
   }
 
-  const hasTasks = tasks.length > 0
+  const toggleExpand = (taskId) => {
+    setExpandedTaskId(expandedTaskId === taskId ? null : taskId)
+  }
+
+  const calculateRemaining = (totalTime, progress) => {
+    return (totalTime * (100 - progress) / 100).toFixed(1)
+  }
+
+  const getPriorityLabel = (priority) => {
+    switch (priority) {
+      case 'P1': return 'P1 - High'
+      case 'P2': return 'P2 - Medium'
+      case 'P3': return 'P3 - Low'
+      default: return 'P2 - Medium'
+    }
+  }
+
+  const getPriorityColor = (priority) => {
+    switch (priority) {
+      case 'P1': return '#ef4444'
+      case 'P2': return '#f59e0b'
+      case 'P3': return '#10b981'
+      default: return '#f59e0b'
+    }
+  }
+
+  // Filter and sort tasks
+  const filteredTasks = tasks
+    .filter(task => {
+      if (dateFrom && new Date(task.dueDate) < new Date(dateFrom)) return false
+      if (dateTo && new Date(task.dueDate) > new Date(dateTo)) return false
+      if (priorityFilter && task.priority !== priorityFilter) return false
+      return true
+    })
+    .sort((a, b) => {
+      if (sortBy === 'earliest') {
+        return new Date(a.dueDate) - new Date(b.dueDate)
+      } else if (sortBy === 'latest') {
+        return new Date(b.dueDate) - new Date(a.dueDate)
+      } else if (sortBy === 'priority') {
+        const priorityOrder = { 'P1': 1, 'P2': 2, 'P3': 3 }
+        return priorityOrder[a.priority] - priorityOrder[b.priority]
+      }
+      return 0
+    })
 
   return (
-    <div className="app-page">
-      <div className="app-shell">
+    <div style={{ minHeight: '100vh', backgroundColor: '#f3f4f6', padding: '2rem' }}>
+      {/* Header with Menu */}
+      <div style={{ maxWidth: '1400px', margin: '0 auto', marginBottom: '2rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            {/* Menu Button */}
+            <div style={{ position: 'relative' }}>
+              <button
+                onClick={() => setShowMenu(!showMenu)}
+                style={{
+                  backgroundColor: 'white',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '0.5rem',
+                  padding: '0.75rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem'
+                }}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="3" y1="12" x2="21" y2="12" />
+                  <line x1="3" y1="6" x2="21" y2="6" />
+                  <line x1="3" y1="18" x2="21" y2="18" />
+                </svg>
+                <span style={{ fontWeight: '600' }}>Menu</span>
+              </button>
+              
+              {/* Dropdown Menu */}
+              {showMenu && (
+                <div style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  marginTop: '0.5rem',
+                  backgroundColor: 'white',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '0.5rem',
+                  boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
+                  minWidth: '200px',
+                  zIndex: 50
+                }}>
+                  <button
+                    onClick={() => { navigate('/tasks'); setShowMenu(false); }}
+                    style={{
+                      width: '100%',
+                      padding: '0.75rem 1rem',
+                      border: 'none',
+                      backgroundColor: 'transparent',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      color: '#111827',
+                      fontWeight: '500',
+                      borderBottom: '1px solid #e5e7eb'
+                    }}
+                  >
+                    📋 Tasks
+                  </button>
+                  <button
+                    onClick={() => { navigate('/analytics'); setShowMenu(false); }}
+                    style={{
+                      width: '100%',
+                      padding: '0.75rem 1rem',
+                      border: 'none',
+                      backgroundColor: 'transparent',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      color: '#111827',
+                      fontWeight: '500',
+                      borderBottom: '1px solid #e5e7eb'
+                    }}
+                  >
+                    📊 Analytics
+                  </button>
+                  <button
+                    onClick={() => { navigate('/completed'); setShowMenu(false); }}
+                    style={{
+                      width: '100%',
+                      padding: '0.75rem 1rem',
+                      border: 'none',
+                      backgroundColor: 'transparent',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      color: '#111827',
+                      fontWeight: '500',
+                      borderBottom: '1px solid #e5e7eb'
+                    }}
+                  >
+                    ✅ Completed
+                  </button>
+                  <button
+                    onClick={() => { navigate('/help'); setShowMenu(false); }}
+                    style={{
+                      width: '100%',
+                      padding: '0.75rem 1rem',
+                      border: 'none',
+                      backgroundColor: 'transparent',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      color: '#111827',
+                      fontWeight: '500',
+                      borderBottom: '1px solid #e5e7eb'
+                    }}
+                  >
+                    ❓ Help
+                  </button>
+                  <button
+                    onClick={() => { handleLogout(); setShowMenu(false); }}
+                    style={{
+                      width: '100%',
+                      padding: '0.75rem 1rem',
+                      border: 'none',
+                      backgroundColor: 'transparent',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      color: '#dc2626',
+                      fontWeight: '500'
+                    }}
+                  >
+                    🔒 Logout
+                  </button>
+                </div>
+              )}
+            </div>
+            
+            <div>
+              <h1 style={{ fontSize: '2.25rem', fontWeight: 'bold', color: '#111827', margin: 0 }}>
+                Priority Tool
+              </h1>
+              <p style={{ color: '#6b7280', marginTop: '0.25rem', fontSize: '1rem' }}>
+                Manage and prioritize your tasks efficiently
+              </p>
+            </div>
+          </div>
+          
+          <button
+            onClick={handleAddTask}
+            style={{
+              backgroundColor: '#000000',
+              color: 'white',
+              padding: '0.75rem 1.5rem',
+              borderRadius: '0.5rem',
+              border: 'none',
+              fontSize: '1rem',
+              fontWeight: '600',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem'
+            }}
+          >
+            <span style={{ fontSize: '1.25rem' }}>+</span> Add Task
+          </button>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div style={{
+        maxWidth: '1400px',
+        margin: '0 auto 2rem',
+        backgroundColor: 'white',
+        padding: '1.5rem',
+        borderRadius: '0.75rem',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+        display: 'flex',
+        gap: '1.5rem',
+        alignItems: 'flex-start'
+      }}>
+        {/* Sort By */}
+        <div style={{ flex: '1.2 1 0' }}>
+          <label style={{ display: 'block', fontWeight: '600', marginBottom: '0.5rem', color: '#111827' }}>
+            Sort By
+          </label>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '0.625rem 1rem',
+              border: '1px solid #d1d5db',
+              borderRadius: '0.5rem',
+              fontSize: '1rem',
+              backgroundColor: '#f9fafb'
+            }}
+          >
+            <option value="earliest">Earliest Due Date</option>
+            <option value="latest">Latest Due Date</option>
+            <option value="priority">Priority</option>
+          </select>
+          <p style={{ fontSize: '0.875rem', color: '#6b7280', marginTop: '0.5rem' }}>
+            Tasks with the earliest due dates first
+          </p>
+        </div>
+
+        {/* Due Date Range */}
+        <div style={{ flex: '0.8 1 0' }}>
+          <label style={{ display: 'block', fontWeight: '600', marginBottom: '0.5rem', color: '#111827' }}>
+            Due Date Range
+          </label>
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+            placeholder="dd-mm-yyyy"
+            style={{
+              width: '100%',
+              padding: '0.625rem 1rem',
+              border: '1px solid #d1d5db',
+              borderRadius: '0.5rem',
+              marginBottom: '0.5rem',
+              backgroundColor: '#f9fafb'
+            }}
+          />
+          <input
+            type="date"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+            placeholder="dd-mm-yyyy"
+            style={{
+              width: '100%',
+              padding: '0.625rem 1rem',
+              border: '1px solid #d1d5db',
+              borderRadius: '0.5rem',
+              backgroundColor: '#f9fafb'
+            }}
+          />
+        </div>
+
+        {/* Priority Filter */}
+        <div style={{ flex: '1 1 0' }}>
+          <label style={{ display: 'block', fontWeight: '600', marginBottom: '0.5rem', color: '#111827' }}>
+            Priority Level
+          </label>
+          <select
+            value={priorityFilter}
+            onChange={(e) => setPriorityFilter(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '0.625rem 1rem',
+              border: '1px solid #d1d5db',
+              borderRadius: '0.5rem',
+              fontSize: '1rem',
+              backgroundColor: '#f9fafb'
+            }}
+          >
+            <option value="">All Priorities</option>
+            <option value="P1">P1 - High</option>
+            <option value="P2">P2 - Medium</option>
+            <option value="P3">P3 - Low</option>
+          </select>
+          <p style={{ fontSize: '0.875rem', color: '#6b7280', marginTop: '0.5rem' }}>
+            Filter by priority
+          </p>
+        </div>
+      </div>
+
+      {/* Error Message */}
       {serverError && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4" role="alert">
+        <div style={{
+          maxWidth: '1400px',
+          margin: '0 auto 1rem',
+          padding: '1rem',
+          backgroundColor: '#fee2e2',
+          color: '#991b1b',
+          borderRadius: '0.5rem'
+        }}>
           {serverError}
         </div>
       )}
 
-      <form className="bg-white border border-gray-200 rounded-lg p-6 mb-6 shadow-sm" onSubmit={handleSubmit} noValidate>
-        <h2 className="text-xl font-bold text-gray-900 mb-4">Add New Task</h2>
-        {formError && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4" role="alert">
-            {formError}
+      {/* Tasks Table */}
+      <div style={{
+        maxWidth: '1400px',
+        margin: '0 auto',
+        backgroundColor: 'white',
+        borderRadius: '0.75rem',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+        overflow: 'hidden'
+      }}>
+        {isLoading ? (
+          <div style={{ padding: '3rem', textAlign: 'center', color: '#6b7280' }}>
+            Loading tasks...
           </div>
+        ) : filteredTasks.length === 0 ? (
+          <div style={{ padding: '3rem', textAlign: 'center', color: '#6b7280' }}>
+            No tasks found. Click "Add Task" to create one.
+          </div>
+        ) : (
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
+                <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#111827' }}>Task Name</th>
+                <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#111827' }}>Due Date</th>
+                <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#111827' }}>Priority</th>
+                <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#111827' }}>Progress</th>
+                <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#111827' }}>Total Time (hrs)</th>
+                <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#111827' }}>Remaining (hrs)</th>
+                <th style={{ padding: '1rem', textAlign: 'center', fontWeight: '600', color: '#111827' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredTasks.map((task, index) => (
+                <>
+                  <tr key={task.id} style={{ borderBottom: expandedTaskId === task.id ? 'none' : '1px solid #e5e7eb' }}>
+                    <td style={{ padding: '1rem', color: '#111827' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        {task.actionableItems && task.actionableItems.length > 0 && (
+                          <button
+                            onClick={() => toggleExpand(task.id)}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              cursor: 'pointer',
+                              padding: '0',
+                              color: '#6b7280',
+                              display: 'flex',
+                              alignItems: 'center'
+                            }}
+                          >
+                            <svg
+                              width="16"
+                              height="16"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              style={{
+                                transform: expandedTaskId === task.id ? 'rotate(90deg)' : 'rotate(0deg)',
+                                transition: 'transform 0.2s'
+                              }}
+                            >
+                              <polyline points="9 18 15 12 9 6" />
+                            </svg>
+                          </button>
+                        )}
+                        {task.name}
+                      </div>
+                    </td>
+                    <td style={{ padding: '1rem', color: '#111827' }}>
+                      {new Date(task.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </td>
+                    <td style={{ padding: '1rem' }}>
+                      <span style={{
+                        display: 'inline-block',
+                        padding: '0.25rem 0.75rem',
+                        borderRadius: '0.375rem',
+                        fontSize: '0.875rem',
+                        fontWeight: '600',
+                        backgroundColor: `${getPriorityColor(task.priority)}20`,
+                        color: getPriorityColor(task.priority)
+                      }}>
+                        {getPriorityLabel(task.priority)}
+                      </span>
+                    </td>
+                    <td style={{ padding: '1rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <div style={{ flex: 1, height: '8px', backgroundColor: '#e5e7eb', borderRadius: '4px', maxWidth: '120px' }}>
+                          <div style={{
+                            width: `${task.completionPercent || 0}%`,
+                            height: '100%',
+                            backgroundColor: '#000000',
+                            borderRadius: '4px'
+                          }} />
+                        </div>
+                        <span style={{ fontWeight: '600', color: '#111827', minWidth: '45px' }}>
+                          {task.completionPercent || 0}%
+                        </span>
+                      </div>
+                    </td>
+                    <td style={{ padding: '1rem', color: '#111827' }}>{task.totalTime || 1}</td>
+                    <td style={{ padding: '1rem', color: '#111827' }}>
+                      {calculateRemaining(task.totalTime || 1, task.completionPercent || 0)}
+                    </td>
+                    <td style={{ padding: '1rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'center', gap: '0.75rem' }}>
+                        <button
+                          onClick={() => handleEditTask(task)}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            padding: '0.25rem',
+                            color: '#6b7280'
+                          }}
+                          title="Edit"
+                        >
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                          </svg>
+                        </button>
+                        <button
+                          onClick={() => handleDeleteTask(task.id)}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            padding: '0.25rem',
+                            color: '#6b7280'
+                          }}
+                          title="Delete"
+                        >
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <polyline points="3 6 5 6 21 6" />
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                          </svg>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                  
+                  {/* Expanded Actionable Items Row */}
+                  {expandedTaskId === task.id && task.actionableItems && task.actionableItems.length > 0 && (
+                    <tr key={`${task.id}-expanded`} style={{ borderBottom: index < filteredTasks.length - 1 ? '1px solid #e5e7eb' : 'none', backgroundColor: '#f9fafb' }}>
+                      <td colSpan="7" style={{ padding: '1rem' }}>
+                        <div style={{ paddingLeft: '2rem' }}>
+                          <p style={{ fontWeight: '600', color: '#374151', marginBottom: '0.5rem', fontSize: '0.875rem' }}>
+                            Actionable Items:
+                          </p>
+                          <ul style={{ margin: 0, paddingLeft: '1.5rem', color: '#6b7280' }}>
+                            {task.actionableItems.map((item, idx) => (
+                              <li key={idx} style={{ marginBottom: '0.25rem', fontSize: '0.875rem' }}>
+                                {item}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </>
+              ))}
+            </tbody>
+          </table>
         )}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label htmlFor="task-name" className="block text-sm font-medium text-gray-700 mb-1">
-              Task name
-            </label>
-            <input
-              id="task-name"
-              name="name"
-              value={draft.name}
-              placeholder="Write task name..."
-              onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-              className="w-full bg-gray-50 border border-gray-300 rounded px-3 py-2 text-gray-900 placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-            />
-          </div>
-          <div>
-            <label htmlFor="due-date" className="block text-sm font-medium text-gray-700 mb-1">
-              Due date
-            </label>
-            <input
-              id="due-date"
-              type="date"
-              name="dueDate"
-              value={draft.dueDate}
-              onChange={(e) => setDraft({ ...draft, dueDate: e.target.value })}
-              className="w-full bg-gray-50 border border-gray-300 rounded px-3 py-2 text-gray-900 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-            />
-          </div>
-          <div>
-            <label htmlFor="priority" className="block text-sm font-medium text-gray-700 mb-1">
-              Priority level
-            </label>
-            <select
-              id="priority"
-              name="priority"
-              value={draft.priority}
-              onChange={(e) => setDraft({ ...draft, priority: e.target.value })}
-              className="w-full bg-gray-50 border border-gray-300 rounded px-3 py-2 text-gray-900 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-            >
-              <option value="P1">P1 - High</option>
-              <option value="P2">P2 - Medium</option>
-              <option value="P3">P3 - Low</option>
-            </select>
-          </div>
-          <div>
-            <label htmlFor="actionable-items" className="block text-sm font-medium text-gray-700 mb-1">
-              Actionable Items
-            </label>
-            <textarea
-              id="actionable-items"
-              name="actionableItems"
-              placeholder="One item per line"
-              value={draft.actionableText}
-              onChange={(e) => setDraft({ ...draft, actionableText: e.target.value })}
-              rows={3}
-              className="w-full bg-gray-50 border border-gray-300 rounded px-3 py-2 text-gray-900 placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-            />
-          </div>
-        </div>
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          className="mt-4 bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {isSubmitting ? 'Saving…' : 'Add Task'}
-        </button>
-      </form>
+      </div>
 
-      {/* Overdue Alert */}
-      {showOverdueAlert && overdueTasks.length > 0 && (
-        <div className="bg-red-50 border-2 border-red-200 text-red-800 px-4 py-3 rounded-lg mb-6 flex items-start justify-between" role="alert">
-          <div className="flex items-start gap-3">
-            <span className="text-2xl">⚠️</span>
-            <div>
-              <h3 className="font-bold text-lg mb-1">Overdue Tasks Alert!</h3>
-              <p className="text-sm">
-                You have <strong>{overdueTasks.length}</strong> overdue {overdueTasks.length === 1 ? 'task' : 'tasks'}. Please review and update.
-              </p>
-              <ul className="mt-2 space-y-1">
-                {overdueTasks.slice(0, 3).map((task) => (
-                  <li key={task.id} className="text-sm">
-                    • {task.name} (Due: {new Date(task.dueDate).toLocaleDateString()})
-                  </li>
-                ))}
-                {overdueTasks.length > 3 && (
-                  <li className="text-sm italic">...and {overdueTasks.length - 3} more</li>
-                )}
-              </ul>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowOverdueAlert(false)}
-            className="text-red-800 hover:text-red-900 text-2xl leading-none"
-            aria-label="Dismiss alert"
+      {/* Modal */}
+      {showModal && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 50,
+          padding: '1rem'
+        }} onClick={() => setShowModal(false)}>
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              backgroundColor: 'white',
+              borderRadius: '1rem',
+              padding: '2rem',
+              maxWidth: '500px',
+              width: '100%',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)'
+            }}
           >
-            ×
-          </button>
+            {/* Modal Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+              <div>
+                <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#111827', margin: 0 }}>
+                  {editingTask ? 'Edit Task' : 'Add New Task'}
+                </h2>
+                <p style={{ color: '#6b7280', marginTop: '0.25rem', fontSize: '0.875rem' }}>
+                  Fill in the details for your {editingTask ? 'task' : 'new task'}.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowModal(false)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  fontSize: '1.5rem',
+                  cursor: 'pointer',
+                  color: '#6b7280',
+                  padding: '0',
+                  lineHeight: 1
+                }}
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Modal Form */}
+            <form onSubmit={handleModalSubmit}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+                {/* Left Column */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                  {/* Task Name */}
+                  <div>
+                    <label style={{ display: 'block', fontWeight: '600', marginBottom: '0.5rem', color: '#111827' }}>
+                      Task Name
+                    </label>
+                    <input
+                      type="text"
+                      value={modalForm.name}
+                      onChange={(e) => setModalForm({ ...modalForm, name: e.target.value })}
+                      placeholder="Enter task name"
+                      style={{
+                        width: '100%',
+                        padding: '0.75rem 1rem',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '0.5rem',
+                        fontSize: '1rem',
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                  </div>
+
+                  {/* Due Date */}
+                  <div>
+                    <label style={{ display: 'block', fontWeight: '600', marginBottom: '0.5rem', color: '#111827' }}>
+                      Due Date
+                    </label>
+                    <input
+                      type="date"
+                      value={modalForm.dueDate}
+                      onChange={(e) => setModalForm({ ...modalForm, dueDate: e.target.value })}
+                      style={{
+                        width: '100%',
+                        padding: '0.75rem 1rem',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '0.5rem',
+                        fontSize: '1rem',
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                  </div>
+
+                  {/* Progress */}
+                  <div>
+                    <label style={{ display: 'block', fontWeight: '600', marginBottom: '0.5rem', color: '#111827' }}>
+                      Progress: {modalForm.progress}%
+                    </label>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={modalForm.progress}
+                      onChange={(e) => setModalForm({ ...modalForm, progress: parseInt(e.target.value) })}
+                      style={{ width: '100%', accentColor: '#000000' }}
+                    />
+                  </div>
+
+                  {/* Total Time */}
+                  <div>
+                    <label style={{ display: 'block', fontWeight: '600', marginBottom: '0.5rem', color: '#111827' }}>
+                      Total Time (hours)
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={modalForm.totalTime}
+                      onChange={(e) => setModalForm({ ...modalForm, totalTime: parseInt(e.target.value) || 1 })}
+                      style={{
+                        width: '100%',
+                        padding: '0.75rem 1rem',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '0.5rem',
+                        fontSize: '1rem',
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Right Column */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                  {/* Priority Level */}
+                  <div>
+                    <label style={{ display: 'block', fontWeight: '600', marginBottom: '0.5rem', color: '#111827' }}>
+                      Priority Level
+                    </label>
+                    <select
+                      value={modalForm.priority}
+                      onChange={(e) => setModalForm({ ...modalForm, priority: e.target.value })}
+                      style={{
+                        width: '100%',
+                        padding: '0.75rem 1rem',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '0.5rem',
+                        fontSize: '1rem',
+                        boxSizing: 'border-box',
+                        backgroundColor: 'white'
+                      }}
+                    >
+                      <option value="P1">P1 - High</option>
+                      <option value="P2">P2 - Medium</option>
+                      <option value="P3">P3 - Low</option>
+                    </select>
+                  </div>
+
+                  {/* Actionable Items */}
+                  <div style={{ flex: 1 }}>
+                    <label style={{ display: 'block', fontWeight: '600', marginBottom: '0.5rem', color: '#111827' }}>
+                      Actionable Items
+                    </label>
+                    <textarea
+                      value={modalForm.actionableText}
+                      onChange={(e) => setModalForm({ ...modalForm, actionableText: e.target.value })}
+                      placeholder="One item per line"
+                      style={{
+                        width: '100%',
+                        height: 'calc(100% - 2.5rem)',
+                        minHeight: '200px',
+                        padding: '0.75rem 1rem',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '0.5rem',
+                        fontSize: '1rem',
+                        boxSizing: 'border-box',
+                        fontFamily: 'inherit',
+                        resize: 'vertical'
+                      }}
+                    />
+                    <p style={{ fontSize: '0.875rem', color: '#6b7280', marginTop: '0.5rem', margin: 0 }}>
+                      Enter each actionable item on a new line
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Buttons */}
+              <div style={{ display: 'flex', gap: '1rem', marginTop: '0.5rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowModal(false)}
+                  style={{
+                    flex: 1,
+                    padding: '0.75rem',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '0.5rem',
+                    backgroundColor: 'white',
+                    color: '#374151',
+                    fontWeight: '600',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  style={{
+                    flex: 1,
+                    padding: '0.75rem',
+                    border: 'none',
+                    borderRadius: '0.5rem',
+                    backgroundColor: '#000000',
+                    color: 'white',
+                    fontWeight: '600',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {editingTask ? 'Update Task' : 'Add Task'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
-
-      <section className="mb-6 flex items-center justify-between">
-        <div>
-          {isLoading ? (
-            <p className="text-gray-500">Loading tasks…</p>
-          ) : hasTasks ? (
-            <p className="text-gray-700">
-              {remainingCount} of {tasks.length}{' '}
-              {tasks.length === 1 ? 'task' : 'tasks'} remaining.
-            </p>
-          ) : null}
-        </div>
-        {hasTasks && (
-          <div className="flex items-center gap-4">
-            <label className="flex items-center gap-2 cursor-pointer text-gray-700 hover:text-gray-900">
-              <input
-                type="checkbox"
-                checked={hideCompleted}
-                onChange={(e) => setHideCompleted(e.target.checked)}
-                className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
-              />
-              <span className="text-sm font-medium">Hide Completed Tasks{'\u00A0'}</span>
-              <span>{'\u00A0'}</span>
-            
-            </label>
-            <div className="flex items-center gap-4">
-              <span className="text-sm text-gray-500">{'\u00A0'}Sort Tasks{'\u00A0'} </span>
-              <select
-                value={sortMode}
-                onChange={(e) => setSortMode(e.target.value)}
-                className="bg-gray-50 border border-gray-300 rounded px-3 py-1.5 text-gray-900 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-              >
-                <option value="EDD">Earliest Due Date</option>
-                <option value="SPT">Shortest Processing Time</option>
-                <option value="WSPT">Weighted SPT</option>
-              </select>
-            </div>
-          </div>
-        )}
-      </section>
-
-      {/* Filters */}
-      <div className="bg-white border border-gray-200 rounded-lg p-4 mb-6 flex flex-wrap gap-4 shadow-sm">
-        <div>
-          <label htmlFor="from-date" className="block text-sm text-gray-400 mb-1">From</label>
-          <input
-            id="from-date"
-            type="date"
-            value={filters.from}
-            onChange={(e) => setFilters((f) => ({ ...f, from: e.target.value }))}
-            className="bg-gray-50 border border-gray-300 rounded px-3 py-1.5 text-gray-900 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-          />
-        </div>
-        <div>
-          <label htmlFor="to-date" className="block text-sm text-gray-400 mb-1">To</label>
-          <input
-            id="to-date"
-            type="date"
-            value={filters.to}
-            onChange={(e) => setFilters((f) => ({ ...f, to: e.target.value }))}
-            className="bg-gray-50 border border-gray-300 rounded px-3 py-1.5 text-gray-900 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-          />
-        </div>
-        <div>
-          <label htmlFor="priority-filter" className="block text-sm text-gray-400 mb-1">Priority</label>
-          <select
-            id="priority-filter"
-            value={filters.priority}
-            onChange={(e) => setFilters((f) => ({ ...f, priority: e.target.value }))}
-            className="bg-gray-50 border border-gray-300 rounded px-3 py-1.5 text-gray-900 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-          >
-            <option value="">All</option>
-            <option value="P1">P1</option>
-            <option value="P2">P2</option>
-            <option value="P3">P3</option>
-          </select>
-        </div>
-        <div className="flex items-end">
-          <button
-            type="button"
-            onClick={() => setFilters({ from: '', to: '', priority: '' })}
-            className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-1.5 rounded text-sm"
-          >
-            Clear
-          </button>
-        </div>
-      </div>
-
-      {/* Tasks List */}
-      <div className="task-list-wrapper">
-        {isLoading ? (
-          <p className="status-message">Fetching your tasks…</p>
-        ) : hasTasks ? (
-          <ul className="task-cards">
-            {tasks
-              .filter((task) => {
-                // Hide completed tasks if toggle is on
-                if (hideCompleted && task.completed) return false
-                
-                const d = new Date(task.dueDate)
-                const fromOk = !filters.from || d >= new Date(filters.from)
-                const toOk = !filters.to || d <= new Date(filters.to)
-                const prOk = !filters.priority || task.priority === filters.priority
-                return fromOk && toOk && prOk
-              })
-              .map((task) => {
-              const isBusy = pendingIds.has(task.id)
-              const todayMidnight = new Date()
-              todayMidnight.setHours(0, 0, 0, 0)
-              const isOverdue = !task.completed && new Date(task.dueDate) < todayMidnight
-              return (
-                <li key={task.id} className={`task-card ${task.completed ? 'completed' : 'inprogress'}`}>
-                  <div className="task-card-header">
-                    <span className={`priority ${task.priority}`}>{task.priority}</span>
-                    <span className="due-date"><strong>Due</strong> {new Date(task.dueDate).toLocaleDateString()}</span>
-                  </div>
-                  <div className="task-card-body">
-                    <h3 className="task-name">{task.name}</h3>
-                    {Array.isArray(task.actionableItems) && task.actionableItems.length > 0 && (
-                      <ul className="actionable-list">
-                        {task.actionableItems.map((it, idx) => (
-                          <li key={idx}>{it}</li>
-                        ))}
-                      </ul>
-                    )}
-                    <div className="percent-row">
-                      <label>Completion: <strong>{task.completionPercent ?? 0}%</strong></label>
-                      <input
-                        type="range"
-                        min="0"
-                        max="100"
-                        value={task.completionPercent ?? 0}
-                        onChange={async (e) => {
-                          const cp = parseInt(e.target.value, 10)
-                          markPending(task.id)
-                          try {
-                            const updated = await updateTask(task.id, { completionPercent: cp })
-                            setTasks((current) => sortByStrategy(current.map((t) => (t.id === task.id ? updated : t))))
-                          } catch (error) {
-                            setServerError(error.message || 'Unable to update task.')
-                          } finally {
-                            releasePending(task.id)
-                          }
-                        }}
-                        disabled={isBusy}
-                      />
-                    </div>
-                    <details className="edit-panel">
-                      <summary>Edit</summary>
-                      <div className="edit-grid">
-                        <div className="form-row">
-                          <label>Due date</label>
-                          <input
-                            type="date"
-                            defaultValue={String(task.dueDate).slice(0,10)}
-                            onBlur={async (e) => {
-                              const dueDate = e.target.value
-                              if (!dueDate) return
-                              markPending(task.id)
-                              try {
-                                const updated = await updateTask(task.id, { dueDate })
-                                setTasks((current) => sortByStrategy(current.map((t) => (t.id === task.id ? updated : t))))
-                              } finally { releasePending(task.id) }
-                            }}
-                            disabled={isBusy}
-                          />
-                        </div>
-                        <div className="form-row">
-                          <label>Priority level</label>
-                          <select
-                            defaultValue={task.priority}
-                            onChange={async (e) => {
-                              const priority = e.target.value
-                              markPending(task.id)
-                              try {
-                                const updated = await updateTask(task.id, { priority })
-                                setTasks((current) => sortByStrategy(current.map((t) => (t.id === task.id ? updated : t))))
-                              } finally { releasePending(task.id) }
-                            }}
-                            disabled={isBusy}
-                          >
-                            <option value="P1">P1</option>
-                            <option value="P2">P2</option>
-                            <option value="P3">P3</option>
-                          </select>
-                        </div>
-                        <div className="form-row">
-                          <label>Actionable Items</label>
-                          <textarea
-                            defaultValue={Array.isArray(task.actionableItems) ? task.actionableItems.join('\n') : ''}
-                            rows={3}
-                            onBlur={async (e) => {
-                              const actionableItems = e.target.value.split('\n').map(s=>s.trim()).filter(Boolean)
-                              markPending(task.id)
-                              try {
-                                const updated = await updateTask(task.id, { actionableItems })
-                                setTasks((current) => sortByStrategy(current.map((t) => (t.id === task.id ? updated : t))))
-                              } finally { releasePending(task.id) }
-                            }}
-                            disabled={isBusy}
-                          />
-                        </div>
-                      </div>
-                    </details>
-                  </div>
-                  <div className="task-card-actions">
-                    <label className="toggle">
-                      <input
-                        type="checkbox"
-                        checked={task.completed}
-                        onChange={() => toggleTask(task)}
-                        disabled={isBusy}
-                      />
-                      <span>Completed</span>
-                    </label>
-                    <button
-                      type="button"
-                      className="delete-button"
-                      onClick={() => removeTask(task.id)}
-                      disabled={isBusy}
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </li>
-              )
-            })}
-          </ul>
-        ) : (
-          <p className="status-message subtle">Start creating your tasks</p>
-        )}
-      </div>
-      <div ref={confettiRootRef} className="confetti-root" aria-hidden="true" />
-      </div>
     </div>
   )
 }
