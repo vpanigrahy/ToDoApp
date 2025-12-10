@@ -1,35 +1,68 @@
 # Enables better type hinting
 from __future__ import annotations
 
-# Provides access to environment variables for database configuration
 import os
-# PostgreSQL database adapter for Python
-import psycopg
-# Provides the contextmanager decorator for creating context managers
 from contextlib import contextmanager
+from pathlib import Path
+
+import psycopg
+from dotenv import dotenv_values
 
 
-# Constructs database connection string from environment variables
+# --- Locate backend/.env regardless of where Python is run from ---
+BASE_DIR = Path(__file__).resolve().parent      # this is the backend/ folder
+ENV_PATH = BASE_DIR / ".env"
+
+# Load values directly from .env (DOES NOT depend on external env)
+CONFIG = dotenv_values(ENV_PATH)
+
+#print("=== db.py DEBUG ===")
+print("Using .env at:", ENV_PATH)
+print(".env exists?:", ENV_PATH.exists())
+print("CONFIG['PGUSER']:", repr(CONFIG.get("PGUSER")))
+print("CONFIG['PGDATABASE']:", repr(CONFIG.get("PGDATABASE")))
+print("CONFIG['PGPASSWORD']:", repr(CONFIG.get("PGPASSWORD")))
+print("====================")
+
+
 def _get_db_dsn() -> str:
-    host = os.getenv("PGHOST", "localhost")
-    port = os.getenv("PGPORT", "5432")
-    dbname = os.getenv("PGDATABASE", "todoapp")
-    user = os.getenv("PGUSER", "postgres")
-    password = os.getenv("PGPASSWORD", "")
-    return f"host={host} port={port} dbname={dbname} user={user} password={password}"
+    """
+    Build the PostgreSQL DSN.
+
+    Priority:
+    1. Values from backend/.env (CONFIG)
+    2. Fallback to process environment variables
+    3. Finally fallback to safe defaults
+    """
+    host = CONFIG.get("PGHOST") or os.getenv("PGHOST", "localhost")
+    port = CONFIG.get("PGPORT") or os.getenv("PGPORT", "5432")
+    dbname = CONFIG.get("PGDATABASE") or os.getenv("PGDATABASE", "todoapp")
+    user = CONFIG.get("PGUSER") or os.getenv("PGUSER", "postgres")
+    password = CONFIG.get("PGPASSWORD") or os.getenv("PGPASSWORD", "")
+
+    dsn = f"host={host} port={port} dbname={dbname} user={user} password={password}"
+    #print("db_cursor will use DSN:", dsn)  
+    
+    return dsn
 
 
-# Context manager for database operations with automatic connection management and commit
 @contextmanager
 def db_cursor():
-    with psycopg.connect(_get_db_dsn()) as conn:
+    """
+    Context manager for database operations with automatic connection management and commit.
+    """
+    dsn = _get_db_dsn()
+    with psycopg.connect(dsn) as conn:
         with conn.cursor() as cur:
             yield cur
             conn.commit()
 
 
-# Creates database tables if they don't exist and adds any missing columns to existing tables
 def init_schema() -> None:
+    """
+    Creates database tables if they don't exist and adds any missing columns to existing tables.
+    """
+
     # SQL to create users table with authentication fields
     create_users = (
         """
@@ -64,7 +97,8 @@ def init_schema() -> None:
         # Create base tables
         cur.execute(create_users)
         cur.execute(create_tasks)
-        # In case table existed before without actionable_items, add it
+
+        # Ensure actionable_items exists
         cur.execute(
             """
             DO $$
@@ -78,7 +112,8 @@ def init_schema() -> None:
             END$$;
             """
         )
-        # Add completion_percent if missing
+
+        # Ensure completion_percent exists
         cur.execute(
             """
             DO $$
@@ -92,7 +127,8 @@ def init_schema() -> None:
             END$$;
             """
         )
-        # Add completed_at if missing
+
+        # Ensure completed_at exists
         cur.execute(
             """
             DO $$
@@ -106,5 +142,3 @@ def init_schema() -> None:
             END$$;
             """
         )
-
-

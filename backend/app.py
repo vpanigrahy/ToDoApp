@@ -62,11 +62,14 @@ def _log_db_connection() -> None:
     except Exception as e:
         app.logger.error("Database connection failed: %s", str(e))
 
-_log_db_connection()
-# Ensure base schema exists and lightweight migrations have been applied.
-init_schema()
-app.logger.info("Database schema ensured (tables: users, tasks)")
-
+# Only connect to DB and initialize schema outside of tests
+if os.getenv("FLASK_ENV") == "test":
+    app.logger.info("Test environment detected; skipping DB connection log and schema init.")
+else:
+    _log_db_connection()
+    # Ensure base schema exists and lightweight migrations have been applied.
+    init_schema()
+    app.logger.info("Database schema ensured (tables: users, tasks)")
 
 # Helper: raises PermissionError if no logged-in user in the session cookie.
 def _require_user_id() -> int:

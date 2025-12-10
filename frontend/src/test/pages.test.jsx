@@ -80,7 +80,8 @@ describe('Dashboard Page', () => {
   it('renders time window filter buttons', async () => {
     api.fetchAnalyticsSummary.mockResolvedValue({
       total_completed: 5,
-      on_time_rate: 0.5,
+      completed_on_time: 3,
+      on_time_rate: 0.6,
       tasks_completed_this_week: 2,
       avg_completion_days: 2.0,
     })
@@ -123,7 +124,7 @@ describe('History Page', () => {
         name: 'Task 1',
         priority: 'P1',
         dueDate: '2025-11-20',
-        completedAt: '2025-11-19',
+        completedAt: '2025-11-18',
         onTime: true,
       },
       {
@@ -131,7 +132,7 @@ describe('History Page', () => {
         name: 'Task 2',
         priority: 'P2',
         dueDate: '2025-11-15',
-        completedAt: '2025-11-20',
+        completedAt: '2025-11-19',
         onTime: false,
       },
     ]
@@ -149,9 +150,11 @@ describe('History Page', () => {
       expect(screen.getByText('Task 2')).toBeInTheDocument()
     })
 
-    expect(screen.getByText(/Total: 2/)).toBeInTheDocument()
-    expect(screen.getByText(/On Time: 1/)).toBeInTheDocument()
-    expect(screen.getByText(/Late: 1/)).toBeInTheDocument()
+    // Instead of "Total: 2", match the current UI:
+    // Buttons: "All (2)", "On Time (1)", "Late (1)"
+    expect(screen.getByText(/All \(2\)/)).toBeInTheDocument()
+    expect(screen.getByText(/On Time \(1\)/)).toBeInTheDocument()
+    expect(screen.getByText(/Late \(1\)/)).toBeInTheDocument()
   })
 
   it('shows empty state when no tasks', async () => {
@@ -164,8 +167,14 @@ describe('History Page', () => {
     )
 
     await waitFor(() => {
-      expect(screen.getByText(/No completed tasks yet/i)).toBeInTheDocument()
+      expect(
+        screen.getByText(/No completed tasks found/i)
+      ).toBeInTheDocument()
     })
+
+    expect(
+      screen.getByText(/Complete some tasks to see them here!/i)
+    ).toBeInTheDocument()
   })
 
   it('handles API errors', async () => {
@@ -178,7 +187,8 @@ describe('History Page', () => {
     )
 
     await waitFor(() => {
-      expect(screen.getByText(/Failed to load/i)).toBeInTheDocument()
+      // Banner text in your UI
+      expect(screen.getByText(/Network error/i)).toBeInTheDocument()
     })
   })
 
@@ -192,9 +202,9 @@ describe('History Page', () => {
     )
 
     await waitFor(() => {
-      expect(screen.getByText(/All/)).toBeInTheDocument()
-      expect(screen.getByText(/On Time/)).toBeInTheDocument()
-      expect(screen.getByText(/Late/)).toBeInTheDocument()
+      expect(screen.getByText(/All \(0\)/)).toBeInTheDocument()
+      expect(screen.getByText(/On Time \(0\)/)).toBeInTheDocument()
+      expect(screen.getByText(/Late \(0\)/)).toBeInTheDocument()
     })
   })
 })
@@ -221,40 +231,50 @@ describe('Help Page', () => {
     expect(screen.getByText(/prioritization tool/i)).toBeInTheDocument()
   })
 
-  it('displays features section', () => {
+  it('displays FAQ section', () => {
     render(
       <BrowserRouter>
         <Help />
       </BrowserRouter>
     )
 
-    expect(screen.getByText(/Key Features/i)).toBeInTheDocument()
+    expect(screen.getByText(/Frequently Asked Questions/i)).toBeInTheDocument()
+    expect(
+      screen.getByText(/What does priority mean\?/i)
+    ).toBeInTheDocument()
   })
 
-  it('displays priority strategies section', () => {
+  it('displays priority strategy FAQ items (EDD, SPT, WSPT)', () => {
     render(
       <BrowserRouter>
         <Help />
       </BrowserRouter>
     )
 
-    expect(screen.getByText(/Priority Strategies/i)).toBeInTheDocument()
-    expect(screen.getByText(/EDD/)).toBeInTheDocument()
-    expect(screen.getByText(/SPT/)).toBeInTheDocument()
-    expect(screen.getByText(/WSPT/)).toBeInTheDocument()
+    expect(
+      screen.getByText(/What is EDD \(Earliest Due Date\)\?/i)
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/What is SPT \(Shortest Processing Time\)\?/i)
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/What is WSPT \(Weighted Shortest Processing Time\)\?/i)
+    ).toBeInTheDocument()
   })
 
-  it('displays priority levels guide', () => {
+  it('displays priority/completion/overdue FAQ items', () => {
     render(
       <BrowserRouter>
         <Help />
       </BrowserRouter>
     )
 
-    expect(screen.getByText(/Priority Levels/i)).toBeInTheDocument()
-    expect(screen.getByText(/P1/)).toBeInTheDocument()
-    expect(screen.getByText(/P2/)).toBeInTheDocument()
-    expect(screen.getByText(/P3/)).toBeInTheDocument()
+    expect(
+      screen.getByText(/What does completion % mean\?/i)
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/What does overdue mean\?/i)
+    ).toBeInTheDocument()
   })
 
   it('displays technologies section', () => {
@@ -265,9 +285,9 @@ describe('Help Page', () => {
     )
 
     expect(screen.getByText(/Technologies Used/i)).toBeInTheDocument()
-    expect(screen.getByText(/React/i)).toBeInTheDocument()
-    expect(screen.getByText(/Flask/i)).toBeInTheDocument()
-    expect(screen.getByText(/PostgreSQL/i)).toBeInTheDocument()
+    expect(screen.getByText(/React 19/i)).toBeInTheDocument()
+    expect(screen.getByText(/Flask \(Python\)/i)).toBeInTheDocument()
+    expect(screen.getByText(/PostgreSQL Database/i)).toBeInTheDocument()
   })
 
   it('displays pro tips section', () => {
