@@ -1,26 +1,23 @@
-# Comprehensive database test: verifies .env configuration, connectivity, version, and schema initialization.
-# Can be used for validating a fresh setup or troubleshooting database issues.
-
 import os
+from pathlib import Path
 from dotenv import load_dotenv
-# Load database credentials from .env file in the project root
-load_dotenv()
+from db import db_cursor, init_schema
 
-from db import db_cursor
+def test_env_and_schema_setup():
+    base_dir = Path(__file__).resolve().parent
+    env_path = base_dir / ".env"
+    assert env_path.exists(), f".env not found at {env_path}"
 
-print("Testing database connection with .env configuration...")
-try:
+    load_dotenv(dotenv_path=env_path)
+
+    assert os.getenv("PGUSER"), "PGUSER not set"
+    assert os.getenv("PGDATABASE"), "PGDATABASE not set"
+    assert os.getenv("PGPASSWORD"), "PGPASSWORD not set"
+
     with db_cursor() as cur:
-        # Query PostgreSQL version to confirm connection and server details
-        cur.execute('SELECT version()')
+        cur.execute("SELECT version()")
         version = cur.fetchone()
-        print(f"SUCCESS: Connected to PostgreSQL {version[0]}")
-        
-        # Test the schema initialization
-        # Ensures users and tasks tables exist with all required columns
-        from db import init_schema
-        init_schema()
-        print("SUCCESS: Schema initialized")
-        
-except Exception as e:
-    print(f"FAILED: {e}")
+        assert version is not None
+
+    # Should not raise:
+    init_schema()

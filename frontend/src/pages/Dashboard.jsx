@@ -4,7 +4,14 @@ import { fetchAnalyticsSummary, fetchAnalyticsCFD, fetchAnalyticsStreak, logout,
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 
 export default function Dashboard() {
-  const [summary, setSummary] = useState(null)
+  const [summary, setSummary] = useState({
+      total_completed: 0,
+      completed_on_time: 0,
+      on_time_rate: 0,
+      tasks_completed_this_week: 0,
+      avg_completion_days: 0,
+      avg_completion_minutes: 0,
+    })
   const [cfdData, setCfdData] = useState([])
   const [streak, setStreak] = useState(null)
   const [timeWindow, setTimeWindow] = useState(30)
@@ -525,7 +532,7 @@ export default function Dashboard() {
           </div>
 
           {/* Achievement Badge */}
-          {summary.on_time_rate >= 0.8 && summary.total_completed >= 3 && (
+          {(summary?.on_time_rate ?? 0) >= 0.8 && (summary?.total_completed ?? 0) >= 3 && (
             <div style={{
               maxWidth: '1400px',
               margin: '0 auto',
