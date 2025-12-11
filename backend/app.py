@@ -235,7 +235,7 @@ def list_tasks():
     with db_cursor() as cur:
         cur.execute(
             """
-            SELECT id::text, name, due_date, priority, completed, COALESCE(actionable_items, '[]'::jsonb), completion_percent
+            SELECT id::text, name, due_date, priority, completed, COALESCE(actionable_items, '[]'::jsonb), completion_percent, COALESCE(total_time, 1)
             FROM tasks
             WHERE user_id = %s
             ORDER BY due_date ASC, created_at ASC
@@ -252,6 +252,7 @@ def list_tasks():
             "completed": r[4],
             "actionableItems": r[5],
             "completionPercent": r[6],
+            "totalTime": r[7],
         }
         for r in rows
     ]
@@ -273,6 +274,7 @@ def create_task():
     priority = (payload.get("priority") or "").strip()
     actionable_items = payload.get("actionableItems") or []
     completion_percent = int(payload.get("completionPercent") or 0)
+    total_time = int(payload.get("totalTime") or 1)
     
     # Enhanced validation
     if not name:
@@ -303,11 +305,11 @@ def create_task():
     with db_cursor() as cur:
         cur.execute(
             """
-            INSERT INTO tasks (id, user_id, name, due_date, priority, actionable_items, completion_percent)
-            VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s)
-            RETURNING id::text, name, due_date, priority, completed, actionable_items, completion_percent
+            INSERT INTO tasks (id, user_id, name, due_date, priority, actionable_items, completion_percent, total_time)
+            VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s, %s)
+            RETURNING id::text, name, due_date, priority, completed, actionable_items, completion_percent, total_time
             """,
-            (str(task_id), user_id, name, due_date, priority, json.dumps(actionable_items), completion_percent),
+            (str(task_id), user_id, name, due_date, priority, json.dumps(actionable_items), completion_percent, total_time),
         )
         row = cur.fetchone()
     new_task = {
@@ -318,6 +320,7 @@ def create_task():
         "completed": row[4],
         "actionableItems": row[5],
         "completionPercent": row[6],
+        "totalTime": row[7],
     }
     return jsonify(new_task), 201
 
@@ -396,13 +399,23 @@ def update_task(task_id: str):
         fields.append("completion_percent = %s")
         values.append(cp)
 
+    if "totalTime" in payload:
+        try:
+            tt = int(payload.get("totalTime"))
+        except Exception:
+            return jsonify({"message": "Total time must be an integer."}), 400
+        if tt < 1:
+            return jsonify({"message": "Total time must be at least 1 hour."}), 400
+        fields.append("total_time = %s")
+        values.append(tt)
+
     if not fields:
         return jsonify({"message": "Nothing to update."}), 400
 
     values.extend([user_id, task_id])
     with db_cursor() as cur:
         cur.execute(
-            f"UPDATE tasks SET {', '.join(fields)} WHERE user_id = %s AND id = %s RETURNING id::text, name, due_date, priority, completed, COALESCE(actionable_items,'[]'::jsonb), completion_percent",
+            f"UPDATE tasks SET {', '.join(fields)} WHERE user_id = %s AND id = %s RETURNING id::text, name, due_date, priority, completed, COALESCE(actionable_items,'[]'::jsonb), completion_percent, COALESCE(total_time, 1)",
             tuple(values),
         )
         row = cur.fetchone()
@@ -417,6 +430,7 @@ def update_task(task_id: str):
         "completed": row[4],
         "actionableItems": row[5],
         "completionPercent": row[6],
+        "totalTime": row[7],
     }
     return jsonify(task)
 
@@ -463,7 +477,7 @@ def analytics_summary():
             WHERE user_id = %s 
                 AND completed = true 
                 AND completed_at IS NOT NULL
-                AND completed_at >= NOW() - INTERVAL '%s days'
+                AND completed_at >= NOW() - (%s::int) * INTERVAL '1 day'
             """,
             (user_id, days)
         )

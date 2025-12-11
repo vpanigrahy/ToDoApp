@@ -142,3 +142,19 @@ def init_schema() -> None:
             END$$;
             """
         )
+        # Add total_time if missing
+        cur.execute(
+            """
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'tasks' AND column_name = 'total_time'
+                ) THEN
+                    ALTER TABLE tasks ADD COLUMN total_time INTEGER NOT NULL DEFAULT 1;
+                END IF;
+            END$$;
+            """
+        )
+
+
