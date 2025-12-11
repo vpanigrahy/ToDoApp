@@ -237,6 +237,22 @@ export default function Tasks() {
     } else if (sortBy === 'priority') {
       const priorityOrder = { P1: 1, P2: 2, P3: 3 }
       return priorityOrder[a.priority] - priorityOrder[b.priority]
+    } else if (sortBy === 'spt') {
+      // Shortest Processing Time - sort by remaining hours (ascending)
+      // Completed tasks go to the bottom
+      const aCompleted = a.completed || a.completionPercent >= 100
+      const bCompleted = b.completed || b.completionPercent >= 100
+      
+      // If both completed or both not completed, sort by remaining hours
+      if (aCompleted && bCompleted) return 0
+      if (aCompleted) return 1  // a is completed, push to bottom
+      if (bCompleted) return -1  // b is completed, push to bottom
+      
+      // Calculate remaining hours for in-progress tasks
+      const aRemaining = (a.totalTime || 1) * (1 - (a.completionPercent || 0) / 100)
+      const bRemaining = (b.totalTime || 1) * (1 - (b.completionPercent || 0) / 100)
+      
+      return aRemaining - bRemaining  // Ascending order
     }
     return 0
   })
@@ -433,6 +449,7 @@ export default function Tasks() {
               <option value="earliest">Earliest Due Date</option>
               <option value="latest">Latest Due Date</option>
               <option value="priority">Priority</option>
+              <option value="spt">Shortest Processing Time</option>
             </select>
           </div>
 
