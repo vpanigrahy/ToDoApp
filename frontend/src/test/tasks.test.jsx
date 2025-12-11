@@ -114,4 +114,238 @@ describe('Tasks Page', () => {
     // We DO NOT assert deleteTask() here, because current implementation
     // may just update local state or show a confirmation dialog.
   })
+
+  describe('Shortest Processing Time (SPT) Sorting', () => {
+    it('sorts tasks by remaining hours in ascending order when SPT is selected', async () => {
+      const mockTasks = [
+        {
+          id: '1',
+          name: 'Task with 5 hours remaining',
+          priority: 'P1',
+          dueDate: '2025-12-31',
+          completionPercent: 0,
+          totalTime: 5,
+          actionableItems: ['Step 1'],
+          completed: false,
+        },
+        {
+          id: '2',
+          name: 'Task with 2 hours remaining',
+          priority: 'P2',
+          dueDate: '2025-12-30',
+          completionPercent: 0,
+          totalTime: 2,
+          actionableItems: ['Step 1'],
+          completed: false,
+        },
+        {
+          id: '3',
+          name: 'Task with 1 hour remaining',
+          priority: 'P3',
+          dueDate: '2025-12-29',
+          completionPercent: 50,
+          totalTime: 2,
+          actionableItems: ['Step 1'],
+          completed: false,
+        },
+      ]
+
+      api.fetchTasks.mockResolvedValue(mockTasks)
+
+      renderTasksPage()
+
+      await waitFor(() => {
+        expect(screen.getByText('Task with 5 hours remaining')).toBeInTheDocument()
+      })
+
+      // Find and select SPT sorting option
+      const sortSelect = screen.getAllByRole('combobox')[0] // First select is "Sort By"
+      expect(sortSelect).toBeInTheDocument()
+
+      // Change to SPT
+      sortSelect.value = 'spt'
+      sortSelect.dispatchEvent(new Event('change', { bubbles: true }))
+
+      await waitFor(() => {
+        // Verify all tasks are still displayed
+        expect(screen.getByText('Task with 1 hour remaining')).toBeInTheDocument()
+        expect(screen.getByText('Task with 2 hours remaining')).toBeInTheDocument()
+        expect(screen.getByText('Task with 5 hours remaining')).toBeInTheDocument()
+      })
+    })
+
+    it('pushes completed tasks to the bottom when sorting by SPT', async () => {
+      const mockTasks = [
+        {
+          id: '1',
+          name: 'Incomplete Task - 5 hours',
+          priority: 'P1',
+          dueDate: '2025-12-31',
+          completionPercent: 0,
+          totalTime: 5,
+          actionableItems: ['Step 1'],
+          completed: false,
+        },
+        {
+          id: '2',
+          name: 'Completed Task',
+          priority: 'P2',
+          dueDate: '2025-12-30',
+          completionPercent: 100,
+          totalTime: 10,
+          actionableItems: ['Done'],
+          completed: true,
+        },
+        {
+          id: '3',
+          name: 'Incomplete Task - 2 hours',
+          priority: 'P3',
+          dueDate: '2025-12-29',
+          completionPercent: 0,
+          totalTime: 2,
+          actionableItems: ['Step 1'],
+          completed: false,
+        },
+      ]
+
+      api.fetchTasks.mockResolvedValue(mockTasks)
+
+      renderTasksPage()
+
+      await waitFor(() => {
+        expect(screen.getByText('Incomplete Task - 5 hours')).toBeInTheDocument()
+      })
+
+      // Select SPT sorting
+      const sortSelect = screen.getAllByRole('combobox')[0] // First select is "Sort By"
+      sortSelect.value = 'spt'
+      sortSelect.dispatchEvent(new Event('change', { bubbles: true }))
+
+      await waitFor(() => {
+        // All tasks should still be visible
+        expect(screen.getByText('Incomplete Task - 2 hours')).toBeInTheDocument()
+        expect(screen.getByText('Incomplete Task - 5 hours')).toBeInTheDocument()
+        expect(screen.getByText('Completed Task')).toBeInTheDocument()
+      })
+    })
+
+    it('calculates remaining hours correctly for partially completed tasks', async () => {
+      const mockTasks = [
+        {
+          id: '1',
+          name: 'Task 50% done, 5 hours remaining',
+          priority: 'P1',
+          dueDate: '2025-12-31',
+          completionPercent: 50,
+          totalTime: 10,
+          actionableItems: ['Step 1'],
+          completed: false,
+        },
+        {
+          id: '2',
+          name: 'Task 75% done, 1.25 hours remaining',
+          priority: 'P2',
+          dueDate: '2025-12-30',
+          completionPercent: 75,
+          totalTime: 5,
+          actionableItems: ['Step 1'],
+          completed: false,
+        },
+        {
+          id: '3',
+          name: 'Task 0% done, 3 hours remaining',
+          priority: 'P3',
+          dueDate: '2025-12-29',
+          completionPercent: 0,
+          totalTime: 3,
+          actionableItems: ['Step 1'],
+          completed: false,
+        },
+      ]
+
+      api.fetchTasks.mockResolvedValue(mockTasks)
+
+      renderTasksPage()
+
+      await waitFor(() => {
+        expect(screen.getByText('Task 50% done, 5 hours remaining')).toBeInTheDocument()
+      })
+
+      // Select SPT sorting
+      const sortSelect = screen.getAllByRole('combobox')[0] // First select is "Sort By"
+      sortSelect.value = 'spt'
+      sortSelect.dispatchEvent(new Event('change', { bubbles: true }))
+
+      await waitFor(() => {
+        // Verify tasks are displayed (sorted by remaining hours: 1.25 < 3 < 5)
+        expect(screen.getByText('Task 75% done, 1.25 hours remaining')).toBeInTheDocument()
+        expect(screen.getByText('Task 0% done, 3 hours remaining')).toBeInTheDocument()
+        expect(screen.getByText('Task 50% done, 5 hours remaining')).toBeInTheDocument()
+      })
+    })
+
+    it('includes SPT option in the Sort By dropdown', async () => {
+      api.fetchTasks.mockResolvedValue([])
+
+      renderTasksPage()
+
+      await waitFor(() => {
+        expect(screen.getByText(/Sort By/i)).toBeInTheDocument()
+      })
+
+      // Find the select element
+      const sortSelect = screen.getAllByRole('combobox')[0] // First select is "Sort By"
+
+      // Check if SPT option exists
+      const sptOption = Array.from(sortSelect.options).find(
+        option => option.value === 'spt'
+      )
+      expect(sptOption).toBeDefined()
+      expect(sptOption.textContent).toMatch(/Shortest Processing Time/i)
+    })
+
+    it('handles tasks with zero completion percentage correctly in SPT sort', async () => {
+      const mockTasks = [
+        {
+          id: '1',
+          name: 'Task A - 8 hours',
+          priority: 'P1',
+          dueDate: '2025-12-31',
+          completionPercent: 0,
+          totalTime: 8,
+          actionableItems: ['Step 1'],
+          completed: false,
+        },
+        {
+          id: '2',
+          name: 'Task B - 4 hours',
+          priority: 'P2',
+          dueDate: '2025-12-30',
+          completionPercent: 0,
+          totalTime: 4,
+          actionableItems: ['Step 1'],
+          completed: false,
+        },
+      ]
+
+      api.fetchTasks.mockResolvedValue(mockTasks)
+
+      renderTasksPage()
+
+      await waitFor(() => {
+        expect(screen.getByText('Task A - 8 hours')).toBeInTheDocument()
+      })
+
+      // Select SPT sorting
+      const sortSelect = screen.getAllByRole('combobox')[0] // First select is "Sort By"
+      sortSelect.value = 'spt'
+      sortSelect.dispatchEvent(new Event('change', { bubbles: true }))
+
+      await waitFor(() => {
+        // Both tasks should be visible
+        expect(screen.getByText('Task B - 4 hours')).toBeInTheDocument()
+        expect(screen.getByText('Task A - 8 hours')).toBeInTheDocument()
+      })
+    })
+  })
 })
